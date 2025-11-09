@@ -7,9 +7,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 
+import kotlinx.coroutines.CoroutineScope
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val nearbyConnectionsManager = NearbyConnectionsManager(application)
+    private val nearbyConnectionsManager = NearbyConnectionsManager(application, viewModelScope)
 
     val devices: StateFlow<Map<String, DeviceState>> = nearbyConnectionsManager.devices
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())

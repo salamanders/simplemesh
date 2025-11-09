@@ -2,7 +2,19 @@ package info.benjaminhill.simplemesh
 
 import android.content.Context
 import com.google.android.gms.nearby.Nearby
-import com.google.android.gms.nearby.connection.*
+import com.google.android.gms.nearby.connection.AdvertisingOptions
+import com.google.android.gms.nearby.connection.ConnectionInfo
+import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback
+import com.google.android.gms.nearby.connection.ConnectionResolution
+import com.google.android.gms.nearby.connection.ConnectionsClient
+import com.google.android.gms.nearby.connection.ConnectionsStatusCodes
+import com.google.android.gms.nearby.connection.DiscoveredEndpointInfo
+import com.google.android.gms.nearby.connection.DiscoveryOptions
+import com.google.android.gms.nearby.connection.EndpointDiscoveryCallback
+import com.google.android.gms.nearby.connection.Payload
+import com.google.android.gms.nearby.connection.PayloadCallback
+import com.google.android.gms.nearby.connection.PayloadTransferUpdate
+import com.google.android.gms.nearby.connection.Strategy
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -37,7 +49,10 @@ class NearbyConnectionsManager(private val context: Context) {
     }
 
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
-        override fun onEndpointFound(endpointId: String, discoveredEndpointInfo: DiscoveredEndpointInfo) {
+        override fun onEndpointFound(
+            endpointId: String,
+            discoveredEndpointInfo: DiscoveredEndpointInfo
+        ) {
             _devices.value += endpointId to DeviceState(
                 endpointId = endpointId,
                 name = discoveredEndpointInfo.endpointName,
@@ -62,7 +77,8 @@ class NearbyConnectionsManager(private val context: Context) {
     }
 
     fun startAdvertising() {
-        val advertisingOptions = AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
+        val advertisingOptions =
+            AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         connectionsClient.startAdvertising(
             "phone",
             context.packageName,
@@ -73,7 +89,11 @@ class NearbyConnectionsManager(private val context: Context) {
 
     fun startDiscovery() {
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
-        connectionsClient.startDiscovery(context.packageName, endpointDiscoveryCallback, discoveryOptions)
+        connectionsClient.startDiscovery(
+            context.packageName,
+            endpointDiscoveryCallback,
+            discoveryOptions
+        )
     }
 
     fun stopAll() {
@@ -84,21 +104,6 @@ class NearbyConnectionsManager(private val context: Context) {
 
     private fun updateDeviceStatus(endpointId: String, status: ConnectionStatus) {
         val currentDevice = _devices.value[endpointId] ?: return
-        _devices.value = _devices.value + (endpointId to currentDevice.copy(status = status))
+        _devices.value += (endpointId to currentDevice.copy(status = status))
     }
-}
-
-data class DeviceState(
-    val endpointId: String,
-    val name: String,
-    val status: ConnectionStatus
-)
-
-enum class ConnectionStatus {
-    DISCOVERED,
-    CONNECTING,
-    CONNECTED,
-    DISCONNECTED,
-    REJECTED,
-    ERROR
 }

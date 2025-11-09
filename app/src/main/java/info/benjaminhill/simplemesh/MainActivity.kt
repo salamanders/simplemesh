@@ -1,7 +1,6 @@
 package info.benjaminhill.simplemesh
 
 import android.Manifest
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,21 +56,18 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun RequestPermissions() {
-    val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+    val permissionsToRequest =
         arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.BLUETOOTH_SCAN,
             Manifest.permission.BLUETOOTH_CONNECT
         )
-    } else {
-        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
 
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         permissions.entries.forEach {
-            // Handle permission grant/denial
+            // TODO: Handle permission grant/denial
         }
     }
     LaunchedEffect(Unit) {

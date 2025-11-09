@@ -9,17 +9,30 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
 import info.benjaminhill.simplemesh.ui.theme.SimpleMeshTheme
 
 class MainActivity : ComponentActivity() {
@@ -79,10 +92,25 @@ fun RequestPermissions() {
 fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier) {
     LazyColumn(modifier = modifier) {
         items(devices.values.toList()) { device ->
-            Column {
-                Text(text = "Endpoint ID: ${device.endpointId}")
-                Text(text = "Name: ${device.name}")
-                Text(text = "Status: ${device.status}")
+            Row(
+                modifier = Modifier.padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val (icon, color) = when (device.status) {
+                    ConnectionStatus.DISCOVERY_FAILED -> Icons.Default.Warning to Color.Red
+                    ConnectionStatus.DISCOVERED -> Icons.Default.Info to Color.Blue
+                    ConnectionStatus.CONNECTING -> Icons.Default.Info to Color.Gray
+                    ConnectionStatus.CONNECTED -> Icons.Default.CheckCircle to Color.Green
+                    ConnectionStatus.REJECTED -> Icons.Default.Close to Color.Red
+                    ConnectionStatus.ERROR -> Icons.Default.Warning to Color.Red
+                    ConnectionStatus.DISCONNECTED -> Icons.Default.Close to Color.Gray
+                }
+                Icon(imageVector = icon, contentDescription = null, tint = color)
+                Spacer(modifier = Modifier.width(8.dp))
+                Column {
+                    Text(text = device.name)
+                    Text(text = device.status.toString(), color = color)
+                }
             }
         }
     }

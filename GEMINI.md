@@ -59,6 +59,9 @@ Then launch the app from the device.
   concurrency principles to ensure that coroutines are launched in a specific scope and are
   automatically cancelled when the scope is cancelled. This prevents resource leaks and simplifies
   error handling.
+* **Kotlin Time:** Use `kotlin.time.Duration` for all time-related values. It provides a type-safe
+  and readable way to represent durations, avoiding ambiguity and potential errors from using raw
+  numeric types.
 * **2025 Coding Standards:** Adhere to modern coding standards, including:
     * Using the latest stable versions of libraries and tools.
     * Following the official Kotlin coding conventions.

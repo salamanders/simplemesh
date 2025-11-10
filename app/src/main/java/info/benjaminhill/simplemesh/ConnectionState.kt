@@ -6,7 +6,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
-enum class ConnectionStatus {
+enum class ConnectionState {
     DISCOVERY_FAILED,
     DISCOVERED,
     CONNECTING,
@@ -24,12 +24,12 @@ enum class ConnectionStatus {
         endpointId: String,
         removeDevice: () -> Unit,
         startHeartbeat: () -> Job,
-        getCurrentStatus: () -> ConnectionStatus?
+        getCurrentStatus: () -> ConnectionState?
     ): Job? = when (this) {
         DISCOVERED, CONNECTING -> {
             scope.launch {
                 delay(30_000)
-                if (getCurrentStatus() == this@ConnectionStatus) {
+                if (getCurrentStatus() == this@ConnectionState) {
                     Timber.tag("P2P_MESH")
                         .w("Device $endpointId stuck in state $this, removing.")
                     removeDevice()
@@ -42,7 +42,7 @@ enum class ConnectionStatus {
         ERROR, REJECTED, DISCONNECTED -> {
             scope.launch {
                 delay(30_000)
-                if (getCurrentStatus() == this@ConnectionStatus) {
+                if (getCurrentStatus() == this@ConnectionState) {
                     Timber.tag("P2P_MESH")
                         .w("Device $endpointId in state $this timed out, removing.")
                     removeDevice()

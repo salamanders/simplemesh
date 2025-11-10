@@ -55,16 +55,16 @@ class NearbyConnectionsManager(
         override fun onConnectionInitiated(endpointId: String, connectionInfo: ConnectionInfo) {
             Timber.tag("P2P_MESH").d("onConnectionInitiated: endpointId=$endpointId")
             // Automatically accept all connections
-            updateDeviceStatus(endpointId, ConnectionStatus.CONNECTING)
+            updateDeviceStatus(endpointId, ConnectionState.CONNECTING)
             connectionsClient.acceptConnection(endpointId, payloadCallback)
         }
 
         // a connection attempt succeeds or fails.
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             val status = when (result.status.statusCode) {
-                ConnectionsStatusCodes.STATUS_OK -> ConnectionStatus.CONNECTED
-                ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> ConnectionStatus.REJECTED
-                else -> ConnectionStatus.ERROR
+                ConnectionsStatusCodes.STATUS_OK -> ConnectionState.CONNECTED
+                ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> ConnectionState.REJECTED
+                else -> ConnectionState.ERROR
             }
             Timber.tag("P2P_MESH").d("onConnectionResult: endpointId=$endpointId, status=$status")
             updateDeviceStatus(endpointId, status)
@@ -72,7 +72,7 @@ class NearbyConnectionsManager(
 
         override fun onDisconnected(endpointId: String) {
             Timber.tag("P2P_MESH").d("onDisconnected: endpointId=$endpointId")
-            updateDeviceStatus(endpointId, ConnectionStatus.DISCONNECTED)
+            updateDeviceStatus(endpointId, ConnectionState.DISCONNECTED)
         }
     }
 
@@ -86,7 +86,7 @@ class NearbyConnectionsManager(
             Timber.tag("P2P_MESH").d("onEndpointFound: endpointId=$endpointId")
             updateDeviceStatus(
                 endpointId,
-                ConnectionStatus.DISCOVERED,
+                ConnectionState.DISCOVERED,
                 discoveredEndpointInfo.endpointName
             )
             connectionsClient.requestConnection("phone", endpointId, connectionLifecycleCallback)
@@ -114,7 +114,7 @@ class NearbyConnectionsManager(
                         data.contentEquals(PONG) -> {
                             Timber.tag("P2P_MESH").d("Received PONG from $endpointId")
                             // Reset the timeout by creating a new heartbeat
-                            updateDeviceStatus(endpointId, ConnectionStatus.CONNECTED)
+                            updateDeviceStatus(endpointId, ConnectionState.CONNECTED)
                         }
                     }
                 }
@@ -138,7 +138,7 @@ class NearbyConnectionsManager(
             connectionsClient.sendPayload(endpointId, Payload.fromBytes(PING))
             delay(15_000)
             Timber.tag("P2P_MESH").w("No PONG from $endpointId, assuming disconnected.")
-            updateDeviceStatus(endpointId, ConnectionStatus.ERROR)
+            updateDeviceStatus(endpointId, ConnectionState.ERROR)
         }
     }
 
@@ -165,12 +165,12 @@ class NearbyConnectionsManager(
         // Add a timeout for the discovery
         externalScope.launch {
             delay(30_000)
-            if (_devices.value.none { it.value.status == ConnectionStatus.DISCOVERED }) {
+            if (_devices.value.none { it.value.status == ConnectionState.DISCOVERED }) {
                 Timber.tag("P2P_MESH").w("Discovery timed out, no devices found.")
                 _devices.value += "discovery_failed" to DeviceState(
                     endpointId = "discovery_failed",
                     name = "Discovery Failed",
-                    status = ConnectionStatus.DISCOVERY_FAILED
+                    status = ConnectionState.DISCOVERY_FAILED
                 )
             }
         }
@@ -185,7 +185,7 @@ class NearbyConnectionsManager(
 
     private fun updateDeviceStatus(
         endpointId: String,
-        status: ConnectionStatus,
+        status: ConnectionState,
         name: String? = null
     ) {
         val existingDevice = _devices.value[endpointId]

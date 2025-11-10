@@ -115,13 +115,13 @@ fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier)
             ) {
                 // Select an icon and color based on the device's connection status.
                 val (icon, color) = when (device.status) {
-                    ConnectionStatus.DISCOVERY_FAILED -> Icons.Default.Warning to Color.Red
-                    ConnectionStatus.DISCOVERED -> Icons.Default.Info to Color.Blue
-                    ConnectionStatus.CONNECTING -> Icons.Default.Info to Color.Gray
-                    ConnectionStatus.CONNECTED -> Icons.Default.CheckCircle to Color.Green
-                    ConnectionStatus.REJECTED -> Icons.Default.Close to Color.Red
-                    ConnectionStatus.ERROR -> Icons.Default.Warning to Color.Red
-                    ConnectionStatus.DISCONNECTED -> Icons.Default.Close to Color.Gray
+                    ConnectionState.DISCOVERY_FAILED -> Icons.Default.Warning to Color.Red
+                    ConnectionState.DISCOVERED -> Icons.Default.Info to Color.Blue
+                    ConnectionState.CONNECTING -> Icons.Default.Info to Color.Gray
+                    ConnectionState.CONNECTED -> Icons.Default.CheckCircle to Color.Green
+                    ConnectionState.REJECTED -> Icons.Default.Close to Color.Red
+                    ConnectionState.ERROR -> Icons.Default.Warning to Color.Red
+                    ConnectionState.DISCONNECTED -> Icons.Default.Close to Color.Gray
                 }
                 Icon(imageVector = icon, contentDescription = null, tint = color)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -141,8 +141,8 @@ fun DeviceListPreview() {
     SimpleMeshTheme {
         DeviceList(
             devices = mapOf(
-                "endpoint1" to DeviceState("endpoint1", "Device 1", ConnectionStatus.CONNECTED),
-                "endpoint2" to DeviceState("endpoint2", "Device 2", ConnectionStatus.DISCOVERED)
+                "endpoint1" to DeviceState("endpoint1", "Device 1", ConnectionState.CONNECTED),
+                "endpoint2" to DeviceState("endpoint2", "Device 2", ConnectionState.DISCOVERED)
             )
         )
     }

@@ -5,7 +5,7 @@ import kotlinx.coroutines.Job
 data class DeviceState(
     val endpointId: String,
     val name: String,
-    val status: ConnectionStatus,
+    val status: ConnectionState,
     @Transient
     val stateJob: Job? = null
 ) {

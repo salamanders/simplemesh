@@ -9,7 +9,7 @@ lifecycleRuntimeKtx = "2.9.4"
 activityCompose = "1.11.0"
 composeBom = "2025.11.00"
 playServicesNearby = "19.3.0"
-kotlinxCoroutines = "1.8.0"
+kotlinxCoroutines = "1.10.2"
 
 [libraries]
 androidx-compose-material-icons = { module = "androidx.compose.material:material-icons-extended" }

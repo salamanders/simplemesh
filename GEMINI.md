@@ -2,13 +2,17 @@
 
 ## Project Overview
 
-This is an Android application named "SimpleMesh" that tests device-to-device communication using Google Play Services Nearby Connections API. 
+This is an Android application named "SimpleMesh" that tests device-to-device communication using
+Google Play Services Nearby Connections API.
 
 ## Building and Running
 
 The project uses Gradle as its build system.
 
 NOTE: This app can NOT RUN in the emulator, the emulator doesn't support the Bluetooth stack.
+
+NOTE: Instead, strongly consider running `deploy_all.sh` which builds the app, gets the list of devices, and
+deploys and runs on all connected devices.s
 
 * **Build the project:**
   ```bash
@@ -18,7 +22,9 @@ NOTE: This app can NOT RUN in the emulator, the emulator doesn't support the Blu
   ```bash
   ./gradlew installDebug
   ```
-  Then launch the app from the device.
+
+Then launch the app from the device.
+
 * **Run unit tests:**
   ```bash
   ./gradlew test

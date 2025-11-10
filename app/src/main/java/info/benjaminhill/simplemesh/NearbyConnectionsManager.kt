@@ -1,6 +1,6 @@
 package info.benjaminhill.simplemesh
 
-import android.content.Context
+import android.app.Activity
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.ConnectionInfo
@@ -15,23 +15,33 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import timber.log.Timber
-import kotlinx.coroutines.Job
 
+/** 
+ * Core class for finding, connecting to, and communicating with other devices.
+ */
 class NearbyConnectionsManager(
-    private val context: Context,
+    // The main screen, required for NFC and other UI-related connection tasks.
+    private val activity: Activity,
+    // Coroutine scope from the ViewModel to tie background jobs to the ViewModel's lifecycle.
     private val externalScope: CoroutineScope
 ) {
 
+    // The main object from Google's Nearby Connections library.
     private val connectionsClient: ConnectionsClient by lazy {
-        Nearby.getConnectionsClient(context)
+        Nearby.getConnectionsClient(activity)
     }
+
+    // for the PINGs and PONGs
     private val heartbeatJobs = mutableMapOf<String, Job>()
+
+    // Used to cancel a connection attempt if it takes too long.
     private val connectionTimeoutJobs = mutableMapOf<String, Job>()
 
     companion object {
@@ -39,10 +49,15 @@ class NearbyConnectionsManager(
         private val PONG = "PONG".toByteArray()
     }
 
+    // Internal, mutable list of devices. Entire map gets cloned every time there is an update.
     private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
+
+    // External, read-only list of devices for the UI.
     val devices: StateFlow<Map<String, DeviceState>> = _devices
 
+    // Handles events like new connection requests, results, and disconnections.
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
+        // another device wants to connect to us
         override fun onConnectionInitiated(endpointId: String, connectionInfo: ConnectionInfo) {
             Timber.tag("P2P_MESH").d("onConnectionInitiated: endpointId=$endpointId")
             // Automatically accept all connections
@@ -60,6 +75,7 @@ class NearbyConnectionsManager(
             }
         }
 
+        // a connection attempt succeeds or fails.
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
             connectionTimeoutJobs.remove(endpointId)?.cancel()
             val status = when (result.status.statusCode) {
@@ -84,7 +100,9 @@ class NearbyConnectionsManager(
         }
     }
 
+    // Handles finding and losing other devices on the network.
     private val endpointDiscoveryCallback = object : EndpointDiscoveryCallback() {
+        // a new device is discovered nearby.
         override fun onEndpointFound(
             endpointId: String,
             discoveredEndpointInfo: DiscoveredEndpointInfo
@@ -104,7 +122,9 @@ class NearbyConnectionsManager(
         }
     }
 
+    // Handles receiving data (payloads) from other devices.
     private val payloadCallback = object : PayloadCallback() {
+        // Triggered when we get a PING or a PONG.
         override fun onPayloadReceived(endpointId: String, payload: Payload) {
             when (payload.type) {
                 Payload.Type.BYTES -> {
@@ -114,6 +134,7 @@ class NearbyConnectionsManager(
                             Timber.tag("P2P_MESH").d("Received PING from $endpointId")
                             connectionsClient.sendPayload(endpointId, Payload.fromBytes(PONG))
                         }
+
                         data.contentEquals(PONG) -> {
                             Timber.tag("P2P_MESH").d("Received PONG from $endpointId")
                             // Reset the timeout
@@ -122,6 +143,7 @@ class NearbyConnectionsManager(
                         }
                     }
                 }
+
                 else -> {
                     // Ignore other payload types
                 }
@@ -133,6 +155,7 @@ class NearbyConnectionsManager(
         }
     }
 
+    // Periodically sends a PING to a device to ensure it's still connected.
     private fun startHeartbeat(endpointId: String) = externalScope.launch {
         while (true) {
             delay(15_000)
@@ -151,7 +174,7 @@ class NearbyConnectionsManager(
             AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         connectionsClient.startAdvertising(
             "phone",
-            context.packageName,
+            activity.packageName,
             connectionLifecycleCallback,
             advertisingOptions
         )
@@ -161,7 +184,7 @@ class NearbyConnectionsManager(
         Timber.tag("P2P_MESH").d("startDiscovery")
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         connectionsClient.startDiscovery(
-            context.packageName,
+            activity.packageName,
             endpointDiscoveryCallback,
             discoveryOptions
         )

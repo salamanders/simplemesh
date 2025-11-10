@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Done
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
@@ -28,22 +27,35 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import info.benjaminhill.simplemesh.ui.theme.SimpleMeshTheme
 
 class MainActivity : ComponentActivity() {
 
-    private val viewModel: MainViewModel by viewModels()
+    // Handles the low-level device-to-device communication.
+    private val nearbyConnectionsManager by lazy {
+        NearbyConnectionsManager(this, lifecycleScope)
+    }
+
+    // Holds the state for the UI, surviving screen rotations.
+    private val viewModel: MainViewModel by viewModels {
+        // This factory is needed to pass the connections manager to the ViewModel's constructor.
+        MainViewModelFactory(nearbyConnectionsManager)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             SimpleMeshTheme {
+                // Prompts the user for permissions required by the Nearby Connections API.
                 RequestPermissions()
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     DeviceList(
@@ -76,15 +88,20 @@ fun RequestPermissions() {
             Manifest.permission.BLUETOOTH_CONNECT
         )
 
+    val allPermissionsGranted = remember { mutableStateOf(false) }
+
+    // The Android mechanism for showing the permission request dialog.
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        permissions.entries.forEach {
-            // TODO: Handle permission grant/denial
-        }
+        allPermissionsGranted.value = permissions.all { it.value }
     }
     LaunchedEffect(Unit) {
         launcher.launch(permissionsToRequest)
+    }
+
+    if (!allPermissionsGranted.value) {
+        Text("All permissions are required for the app to function.")
     }
 }
 
@@ -96,6 +113,7 @@ fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier)
                 modifier = Modifier.padding(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Select an icon and color based on the device's connection status.
                 val (icon, color) = when (device.status) {
                     ConnectionStatus.DISCOVERY_FAILED -> Icons.Default.Warning to Color.Red
                     ConnectionStatus.DISCOVERED -> Icons.Default.Info to Color.Blue
@@ -108,7 +126,7 @@ fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier)
                 Icon(imageVector = icon, contentDescription = null, tint = color)
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
-                    Text(text = device.name)
+                    Text(text = "${device.name} (${device.endpointId})")
                     Text(text = device.status.toString(), color = color)
                 }
             }
@@ -116,6 +134,7 @@ fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier)
     }
 }
 
+// For displaying a sample device list in the Android Studio preview pane.
 @Preview(showBackground = true)
 @Composable
 fun DeviceListPreview() {

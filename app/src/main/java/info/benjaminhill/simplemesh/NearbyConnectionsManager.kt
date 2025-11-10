@@ -194,34 +194,14 @@ class NearbyConnectionsManager(
         // Cancel any existing job
         existingDevice?.stateJob?.cancel()
 
-        val stateJob: Job? = when (status) {
-            ConnectionStatus.DISCOVERED, ConnectionStatus.CONNECTING -> {
-                externalScope.launch {
-                    delay(30_000)
-                    if (_devices.value[endpointId]?.status == status) {
-                        Timber.tag("P2P_MESH")
-                            .w("Device $endpointId stuck in state $status, removing.")
-                        _devices.value -= endpointId
-                    }
-                }
-            }
-            ConnectionStatus.CONNECTED -> {
-                startHeartbeat(endpointId)
-            }
-            ConnectionStatus.ERROR, ConnectionStatus.REJECTED, ConnectionStatus.DISCONNECTED -> {
-                externalScope.launch {
-                    delay(30_000)
-                    if (_devices.value[endpointId]?.status == status) {
-                        Timber.tag("P2P_MESH")
-                            .w("Device $endpointId in state $status timed out, removing.")
-                        _devices.value -= endpointId
-                    }
-                }
-            }
-            else -> {
-                null
-            }
-        }
+        val stateJob: Job? = status.createJob(
+            scope = externalScope,
+            endpointId = endpointId,
+            removeDevice = { _devices.value -= endpointId },
+            startHeartbeat = { startHeartbeat(endpointId) },
+            getCurrentStatus = { _devices.value[endpointId]?.status }
+        )
+
         _devices.value += endpointId to DeviceState(endpointId, newName, status, stateJob)
     }
 }

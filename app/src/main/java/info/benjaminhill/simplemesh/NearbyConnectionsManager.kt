@@ -38,12 +38,6 @@ class NearbyConnectionsManager(
         Nearby.getConnectionsClient(activity)
     }
 
-    // for the PINGs and PONGs
-    private val heartbeatJobs = mutableMapOf<String, Job>()
-
-    // Used to cancel a connection attempt if it takes too long.
-    private val connectionTimeoutJobs = mutableMapOf<String, Job>()
-
     companion object {
         private val PING = "PING".toByteArray()
         private val PONG = "PONG".toByteArray()
@@ -63,21 +57,10 @@ class NearbyConnectionsManager(
             // Automatically accept all connections
             updateDeviceStatus(endpointId, ConnectionStatus.CONNECTING)
             connectionsClient.acceptConnection(endpointId, payloadCallback)
-
-            // Add a timeout for the connection
-            connectionTimeoutJobs[endpointId] = externalScope.launch {
-                delay(30_000)
-                val currentDevice = _devices.value[endpointId]
-                if (currentDevice?.status == ConnectionStatus.CONNECTING) {
-                    Timber.tag("P2P_MESH").w("Connection to $endpointId timed out.")
-                    updateDeviceStatus(endpointId, ConnectionStatus.ERROR)
-                }
-            }
         }
 
         // a connection attempt succeeds or fails.
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
-            connectionTimeoutJobs.remove(endpointId)?.cancel()
             val status = when (result.status.statusCode) {
                 ConnectionsStatusCodes.STATUS_OK -> ConnectionStatus.CONNECTED
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> ConnectionStatus.REJECTED
@@ -85,18 +68,11 @@ class NearbyConnectionsManager(
             }
             Timber.tag("P2P_MESH").d("onConnectionResult: endpointId=$endpointId, status=$status")
             updateDeviceStatus(endpointId, status)
-
-            if (status == ConnectionStatus.CONNECTED) {
-                heartbeatJobs[endpointId] = startHeartbeat(endpointId)
-            } else {
-                heartbeatJobs.remove(endpointId)?.cancel()
-            }
         }
 
         override fun onDisconnected(endpointId: String) {
             Timber.tag("P2P_MESH").d("onDisconnected: endpointId=$endpointId")
             updateDeviceStatus(endpointId, ConnectionStatus.DISCONNECTED)
-            heartbeatJobs.remove(endpointId)?.cancel()
         }
     }
 
@@ -108,10 +84,10 @@ class NearbyConnectionsManager(
             discoveredEndpointInfo: DiscoveredEndpointInfo
         ) {
             Timber.tag("P2P_MESH").d("onEndpointFound: endpointId=$endpointId")
-            _devices.value += endpointId to DeviceState(
-                endpointId = endpointId,
-                name = discoveredEndpointInfo.endpointName,
-                status = ConnectionStatus.DISCOVERED
+            updateDeviceStatus(
+                endpointId,
+                ConnectionStatus.DISCOVERED,
+                discoveredEndpointInfo.endpointName
             )
             connectionsClient.requestConnection("phone", endpointId, connectionLifecycleCallback)
         }
@@ -137,9 +113,8 @@ class NearbyConnectionsManager(
 
                         data.contentEquals(PONG) -> {
                             Timber.tag("P2P_MESH").d("Received PONG from $endpointId")
-                            // Reset the timeout
-                            heartbeatJobs[endpointId]?.cancel()
-                            heartbeatJobs[endpointId] = startHeartbeat(endpointId)
+                            // Reset the timeout by creating a new heartbeat
+                            updateDeviceStatus(endpointId, ConnectionStatus.CONNECTED)
                         }
                     }
                 }
@@ -164,7 +139,6 @@ class NearbyConnectionsManager(
             delay(15_000)
             Timber.tag("P2P_MESH").w("No PONG from $endpointId, assuming disconnected.")
             updateDeviceStatus(endpointId, ConnectionStatus.ERROR)
-            heartbeatJobs.remove(endpointId)?.cancel()
         }
     }
 
@@ -209,8 +183,45 @@ class NearbyConnectionsManager(
         connectionsClient.stopDiscovery()
     }
 
-    private fun updateDeviceStatus(endpointId: String, status: ConnectionStatus) {
-        val currentDevice = _devices.value[endpointId] ?: return
-        _devices.value += (endpointId to currentDevice.copy(status = status))
+    private fun updateDeviceStatus(
+        endpointId: String,
+        status: ConnectionStatus,
+        name: String? = null
+    ) {
+        val existingDevice = _devices.value[endpointId]
+        val newName = name ?: existingDevice?.name ?: "Unknown"
+
+        // Cancel any existing job
+        existingDevice?.stateJob?.cancel()
+
+        val stateJob: Job? = when (status) {
+            ConnectionStatus.DISCOVERED, ConnectionStatus.CONNECTING -> {
+                externalScope.launch {
+                    delay(30_000)
+                    if (_devices.value[endpointId]?.status == status) {
+                        Timber.tag("P2P_MESH")
+                            .w("Device $endpointId stuck in state $status, removing.")
+                        _devices.value -= endpointId
+                    }
+                }
+            }
+            ConnectionStatus.CONNECTED -> {
+                startHeartbeat(endpointId)
+            }
+            ConnectionStatus.ERROR, ConnectionStatus.REJECTED, ConnectionStatus.DISCONNECTED -> {
+                externalScope.launch {
+                    delay(30_000)
+                    if (_devices.value[endpointId]?.status == status) {
+                        Timber.tag("P2P_MESH")
+                            .w("Device $endpointId in state $status timed out, removing.")
+                        _devices.value -= endpointId
+                    }
+                }
+            }
+            else -> {
+                null
+            }
+        }
+        _devices.value += endpointId to DeviceState(endpointId, newName, status, stateJob)
     }
 }

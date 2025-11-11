@@ -93,14 +93,18 @@ class NearbyConnectionsManager(
 
         // Resets the connection phase every time, and sends a ping in a few seconds
         fun connectedSendPing(endpointId: String, delay: Duration = 15.seconds) {
-            DevicesRegistry.updateDeviceStatus(
-                endpointId = endpointId,
-                externalScope = externalScope,
-                newPhase = ConnectionPhase.CONNECTED
-            )
-            externalScope.launch {
-                delay(delay)
-                connectionsClient.sendPayload(endpointId, Payload.fromBytes(PING))
+            val device = DevicesRegistry.getLatestDeviceState(endpointId)
+            if (device != null) {
+                DevicesRegistry.resetRetryCount(device.name)
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId = endpointId,
+                    externalScope = externalScope,
+                    newPhase = ConnectionPhase.CONNECTED
+                )
+                externalScope.launch {
+                    delay(delay)
+                    connectionsClient.sendPayload(endpointId, Payload.fromBytes(PING))
+                }
             }
         }
 
@@ -115,21 +119,31 @@ class NearbyConnectionsManager(
             if (status == ConnectionPhase.CONNECTED) {
                 connectedSendPing(endpointId)
             } else {
-                DevicesRegistry.updateDeviceStatus(
-                    endpointId = endpointId,
-                    externalScope = externalScope,
-                    newPhase = status
-                )
+                val device = DevicesRegistry.getLatestDeviceState(endpointId)
+                if (device != null) {
+                    DevicesRegistry.updateDeviceStatus(
+                        endpointId = endpointId,
+                        externalScope = externalScope,
+                        newPhase = status
+                    )
+                    if (status == ConnectionPhase.ERROR) {
+                        reconnectWithBackoff(device.name)
+                    }
+                }
             }
         }
 
         override fun onDisconnected(endpointId: String) {
             Timber.tag("P2P_MESH").d("onDisconnected: endpointId=$endpointId")
-            DevicesRegistry.updateDeviceStatus(
-                endpointId = endpointId,
-                externalScope = externalScope,
-                newPhase = ConnectionPhase.DISCONNECTED
-            )
+            val device = DevicesRegistry.getLatestDeviceState(endpointId)
+            if (device != null) {
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId = endpointId,
+                    externalScope = externalScope,
+                    newPhase = ConnectionPhase.DISCONNECTED
+                )
+                reconnectWithBackoff(device.name)
+            }
         }
     }
 
@@ -141,7 +155,7 @@ class NearbyConnectionsManager(
         val advertisingOptions =
             AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         connectionsClient.startAdvertising(
-            "phone",
+            DeviceIdentifier.get(activity),
             activity.packageName,
             connectionLifecycleCallback,
             advertisingOptions
@@ -167,7 +181,7 @@ class NearbyConnectionsManager(
                         newName = discoveredEndpointInfo.endpointName,
                     )
                     connectionsClient.requestConnection(
-                        "localName",
+                        DeviceIdentifier.get(activity),
                         endpointId,
                         connectionLifecycleCallback
                     )
@@ -175,7 +189,11 @@ class NearbyConnectionsManager(
 
                 override fun onEndpointLost(endpointId: String) {
                     Timber.tag("P2P_MESH").d("onEndpointLost: endpointId=$endpointId")
-                    DevicesRegistry.remove(endpointId)
+                    val device = DevicesRegistry.getLatestDeviceState(endpointId)
+                    if (device != null) {
+                        DevicesRegistry.resetRetryCount(device.name)
+                        DevicesRegistry.remove(endpointId)
+                    }
                 }
             },
             discoveryOptions
@@ -187,5 +205,41 @@ class NearbyConnectionsManager(
         connectionsClient.stopAllEndpoints()
         connectionsClient.stopAdvertising()
         connectionsClient.stopDiscovery()
+    }
+
+    private fun reconnectWithBackoff(name: String) {
+        externalScope.launch {
+            // If we are connected to other devices, don't try to reconnect.
+            // Let the normal discovery process find the device again.
+            val otherConnectedDevices = DevicesRegistry.devices.value.values.any {
+                it.phase == ConnectionPhase.CONNECTED
+            }
+            if (otherConnectedDevices) {
+                Timber.tag("P2P_MESH")
+                    .i("reconnectWithBackoff: Other devices are connected, aborting reconnection attempt for $name.")
+                return@launch
+            }
+
+            val retryCount = DevicesRegistry.getRetryCount(name)
+            if (retryCount >= 4) {
+                Timber.tag("P2P_MESH")
+                    .w("reconnectWithBackoff: Device $name reached max retries, giving up.")
+                DevicesRegistry.devices.value.values.find { it.name == name }?.let {
+                    DevicesRegistry.remove(it.endpointId)
+                }
+                return@launch
+            }
+
+            val delayDuration = (5 * (1 shl retryCount)).seconds
+            Timber.tag("P2P_MESH")
+                .i("reconnectWithBackoff: Attempting to reconnect to $name in $delayDuration (retry #${retryCount + 1})")
+            delay(delayDuration)
+
+            DevicesRegistry.incrementRetryCount(name)
+
+            stopAll()
+            startAdvertising()
+            startDiscovery()
+        }
     }
 }

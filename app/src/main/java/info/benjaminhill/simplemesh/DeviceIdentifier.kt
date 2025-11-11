@@ -3,6 +3,7 @@ package info.benjaminhill.simplemesh
 import android.content.Context
 import android.content.SharedPreferences
 import java.util.UUID
+import androidx.core.content.edit
 
 object DeviceIdentifier {
     private const val PREFS_NAME = "SimpleMeshPrefs"
@@ -15,9 +16,9 @@ object DeviceIdentifier {
             uniqueID = sharedPrefs.getString(PREF_UNIQUE_ID, null)
             if (uniqueID == null) {
                 uniqueID = "phone-${UUID.randomUUID().toString().substring(0, 5)}"
-                val editor: SharedPreferences.Editor = sharedPrefs.edit()
-                editor.putString(PREF_UNIQUE_ID, uniqueID)
-                editor.apply()
+                sharedPrefs.edit {
+                    putString(PREF_UNIQUE_ID, uniqueID)
+                }
             }
         }
         return uniqueID!!

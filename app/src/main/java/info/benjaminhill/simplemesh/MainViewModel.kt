@@ -11,6 +11,13 @@ import kotlin.time.Duration.Companion.seconds
 // Holds the list of devices to be displayed on the screen.
 class MainViewModel(private val nearbyConnectionsManager: NearbyConnectionsManager) : ViewModel() {
 
+    private val gossipManager = GossipManager(viewModelScope, nearbyConnectionsManager)
+
+    init {
+        nearbyConnectionsManager.setGossipManager(gossipManager)
+        gossipManager.start()
+    }
+
     // A stream of device states that the UI can observe for live updates.
     // stateIn converts the cold flow from the manager into a hot StateFlow that is shared
     // among all collectors (UI components).

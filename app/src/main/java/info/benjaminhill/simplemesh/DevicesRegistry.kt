@@ -5,8 +5,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 object DevicesRegistry {
-    // Internal, mutable list of devices. Entire map gets cloned every time there is an update.
+    // Internal, mutable list of devices, keyed by ephemeral endpointId.
+    // Entire map gets cloned every time there is an update.
     private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
+
+    // For exponential backoff. Keyed by persistent device name.
     private val _retryCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
 
     // External, read-only list of devices for the UI.

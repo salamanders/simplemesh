@@ -16,7 +16,7 @@ class MainViewModel(private val nearbyConnectionsManager: NearbyConnectionsManag
     // SharingStarted.WhileSubscribed(5000) keeps the upstream flow active for 5 seconds
     // after the last collector disappears. This is useful to keep data across screen rotations
     // without having to re-fetch everything.
-    val devices: StateFlow<Map<String, DeviceState>> = nearbyConnectionsManager.devices
+    val devices: StateFlow<Map<String, DeviceState>> = DevicesRegistry.devices
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     fun startAdvertising() {

@@ -16,11 +16,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -31,7 +26,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
@@ -114,20 +108,16 @@ fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier)
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Select an icon and color based on the device's connection status.
-                val (icon, color) = when (device.status) {
-                    ConnectionState.DISCOVERY_FAILED -> Icons.Default.Warning to Color.Red
-                    ConnectionState.DISCOVERED -> Icons.Default.Info to Color.Blue
-                    ConnectionState.CONNECTING -> Icons.Default.Info to Color.Gray
-                    ConnectionState.CONNECTED -> Icons.Default.CheckCircle to Color.Green
-                    ConnectionState.REJECTED -> Icons.Default.Close to Color.Red
-                    ConnectionState.ERROR -> Icons.Default.Warning to Color.Red
-                    ConnectionState.DISCONNECTED -> Icons.Default.Close to Color.Gray
-                }
-                Icon(imageVector = icon, contentDescription = null, tint = color)
+
+                Icon(
+                    imageVector = device.phase.icon,
+                    contentDescription = null,
+                    tint = device.phase.color
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Column {
                     Text(text = "${device.name} (${device.endpointId})")
-                    Text(text = device.status.toString(), color = color)
+                    Text(text = device.phase.toString(), color = device.phase.color)
                 }
             }
         }
@@ -141,8 +131,8 @@ fun DeviceListPreview() {
     SimpleMeshTheme {
         DeviceList(
             devices = mapOf(
-                "endpoint1" to DeviceState("endpoint1", "Device 1", ConnectionState.CONNECTED),
-                "endpoint2" to DeviceState("endpoint2", "Device 2", ConnectionState.DISCOVERED)
+                "preview1" to DeviceState("endpoint1", "Device 1", ConnectionPhase.CONNECTED),
+                "preview2" to DeviceState("endpoint2", "Device 2", ConnectionPhase.DISCOVERED)
             )
         )
     }

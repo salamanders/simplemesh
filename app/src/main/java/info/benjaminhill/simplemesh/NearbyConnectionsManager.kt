@@ -37,9 +37,16 @@ class NearbyConnectionsManager(
         Nearby.getConnectionsClient(activity)
     }
 
+    private var gossipManager: GossipManager? = null
+
+    fun setGossipManager(gossipManager: GossipManager) {
+        this.gossipManager = gossipManager
+    }
+
     companion object {
         private val PING = "PING".toByteArray()
         private val PONG = "PONG".toByteArray()
+        private const val MAX_CONNECTIONS = 4
     }
 
 
@@ -72,6 +79,10 @@ class NearbyConnectionsManager(
                                 data.contentEquals(PONG) -> {
                                     Timber.tag("P2P_MESH").d("Received PONG from $endpointId")
                                     connectedSendPing(endpointId, 30.seconds)
+                                }
+
+                                else -> {
+                                    gossipManager?.handlePayload(data)
                                 }
                             }
                         }
@@ -117,6 +128,12 @@ class NearbyConnectionsManager(
             }
             Timber.tag("P2P_MESH").d("onConnectionResult: endpointId=$endpointId, status=$status")
             if (status == ConnectionPhase.CONNECTED) {
+                val localDeviceName = DeviceIdentifier.get(activity)
+                val connectedNeighbors = DevicesRegistry.devices.value.values
+                    .filter { it.phase == ConnectionPhase.CONNECTED }
+                    .map { it.name }
+                    .toSet()
+                DevicesRegistry.updateLocalDeviceInGraph(localDeviceName, connectedNeighbors)
                 connectedSendPing(endpointId)
             } else {
                 val device = DevicesRegistry.getLatestDeviceState(endpointId)
@@ -126,7 +143,8 @@ class NearbyConnectionsManager(
                         externalScope = externalScope,
                         newPhase = status
                     )
-                    if (status == ConnectionPhase.ERROR) {
+                    // STATUS_ERROR is a transient error, so we should retry.
+                    if (result.status.statusCode == ConnectionsStatusCodes.STATUS_ERROR) {
                         reconnectWithBackoff(device.name)
                     }
                 }
@@ -142,6 +160,12 @@ class NearbyConnectionsManager(
                     externalScope = externalScope,
                     newPhase = ConnectionPhase.DISCONNECTED
                 )
+                val localDeviceName = DeviceIdentifier.get(activity)
+                val connectedNeighbors = DevicesRegistry.devices.value.values
+                    .filter { it.phase == ConnectionPhase.CONNECTED }
+                    .map { it.name }
+                    .toSet()
+                DevicesRegistry.updateLocalDeviceInGraph(localDeviceName, connectedNeighbors)
                 reconnectWithBackoff(device.name)
             }
         }
@@ -163,6 +187,7 @@ class NearbyConnectionsManager(
     }
 
     fun startDiscovery() {
+        manageConnections()
         Timber.tag("P2P_MESH").d("startDiscovery")
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         connectionsClient.startDiscovery(
@@ -180,11 +205,9 @@ class NearbyConnectionsManager(
                         newPhase = ConnectionPhase.DISCOVERED,
                         newName = discoveredEndpointInfo.endpointName,
                     )
-                    connectionsClient.requestConnection(
-                        DeviceIdentifier.get(activity),
-                        endpointId,
-                        connectionLifecycleCallback
-                    )
+                    // Do not immediately connect, just add to the list of potential peers
+                    // A separate job will decide who to connect to.
+                    DevicesRegistry.addPotentialPeer(endpointId)
                 }
 
                 override fun onEndpointLost(endpointId: String) {
@@ -205,6 +228,54 @@ class NearbyConnectionsManager(
         connectionsClient.stopAllEndpoints()
         connectionsClient.stopAdvertising()
         connectionsClient.stopDiscovery()
+    }
+
+    private fun manageConnections() = externalScope.launch {
+        while (true) {
+            val connectedDevices =
+                DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
+            val potentialPeers = DevicesRegistry.potentialPeers.value
+            if (connectedDevices.size < MAX_CONNECTIONS) {
+                val networkGraph = DevicesRegistry.networkGraph.value
+                val allKnownDevices = networkGraph.keys
+                val unconnectedPeers = potentialPeers.filter {
+                    val device = DevicesRegistry.getLatestDeviceState(it)
+                    device != null && !allKnownDevices.contains(device.name)
+                }
+
+                val peerToConnect = unconnectedPeers.firstOrNull()
+
+                if (peerToConnect != null) {
+                    Timber.tag("P2P_MESH").d("manageConnections: Attempting to connect to an unconnected peer: $peerToConnect")
+                    connectionsClient.requestConnection(
+                        DeviceIdentifier.get(activity),
+                        peerToConnect,
+                        connectionLifecycleCallback
+                    )
+                } else {
+                    val randomPeer = potentialPeers.firstOrNull {
+                        !DevicesRegistry.devices.value.containsKey(it)
+                    }
+                    if (randomPeer != null) {
+                        Timber.tag("P2P_MESH").d("manageConnections: Attempting to connect to a random peer: $randomPeer")
+                        connectionsClient.requestConnection(
+                            DeviceIdentifier.get(activity),
+                            randomPeer,
+                            connectionLifecycleCallback
+                        )
+                    }
+                }
+            }
+            delay(5.seconds)
+        }
+    }
+
+    fun broadcast(data: ByteArray) {
+        val connectedDevices =
+            DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
+        connectedDevices.forEach { device ->
+            connectionsClient.sendPayload(device.endpointId, Payload.fromBytes(data))
+        }
     }
 
     private fun reconnectWithBackoff(name: String) {
@@ -231,9 +302,10 @@ class NearbyConnectionsManager(
             }
 
             val delayDuration = (5 * (1 shl retryCount)).seconds
+            val jitter = (0..1000).random()
             Timber.tag("P2P_MESH")
-                .i("reconnectWithBackoff: Attempting to reconnect to $name in $delayDuration (retry #${retryCount + 1})")
-            delay(delayDuration)
+                .i("reconnectWithBackoff: Attempting to reconnect to $name in $delayDuration (retry #${retryCount + 1}) with ${jitter}ms jitter")
+            delay(delayDuration.inWholeMilliseconds + jitter)
 
             DevicesRegistry.incrementRetryCount(name)
 

@@ -15,6 +15,14 @@ object DevicesRegistry {
     // External, read-only list of devices for the UI.
     val devices: StateFlow<Map<String, DeviceState>> = _devices
 
+    // For connection slot management.
+    private val _potentialPeers = MutableStateFlow<Set<String>>(emptySet())
+    val potentialPeers: StateFlow<Set<String>> = _potentialPeers
+
+    // For topology management. A map of device name to its set of neighbors' names.
+    private val _networkGraph = MutableStateFlow<Map<String, Set<String>>>(emptyMap())
+    val networkGraph: StateFlow<Map<String, Set<String>>> = _networkGraph
+
     fun getLatestDeviceState(endpointId: String): DeviceState? = this.devices.value[endpointId]
 
     fun getRetryCount(name: String): Int = _retryCounts.value[name] ?: 0
@@ -27,12 +35,27 @@ object DevicesRegistry {
         _retryCounts.value -= name
     }
 
+    fun addPotentialPeer(endpointId: String) {
+        _potentialPeers.value += endpointId
+    }
+
+    fun updateNetworkGraph(newGraph: Map<String, Set<String>>) {
+        _networkGraph.value = newGraph
+    }
+
+    fun updateLocalDeviceInGraph(localDeviceName: String, neighbors: Set<String>) {
+        val currentGraph = _networkGraph.value.toMutableMap()
+        currentGraph[localDeviceName] = neighbors
+        _networkGraph.value = currentGraph
+    }
+
     fun remove(endpointId: String) {
         val device = getLatestDeviceState(endpointId)
         if (device != null) {
             _retryCounts.value -= device.name
         }
         _devices.value -= endpointId
+        _potentialPeers.value -= endpointId
     }
 
     fun updateDeviceStatus(

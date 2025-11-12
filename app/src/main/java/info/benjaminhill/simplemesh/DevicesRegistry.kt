@@ -5,19 +5,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 object DevicesRegistry {
-    // Internal, mutable list of devices, keyed by ephemeral endpointId.
-    // Entire map gets cloned every time there is an update.
-    private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
-
-    // For exponential backoff. Keyed by persistent device name.
-    private val _retryCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
-
-    // External, read-only list of devices for the UI.
-    val devices: StateFlow<Map<String, DeviceState>> = _devices
-
     // For connection slot management.
     private val _potentialPeers = MutableStateFlow<Set<String>>(emptySet())
     val potentialPeers: StateFlow<Set<String>> = _potentialPeers
+
+    // Internal, mutable list of devices, keyed by ephemeral endpointId.
+    // Entire map gets cloned every time there is an update.
+    private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
+    // External, read-only list of devices for the UI.
+    val devices: StateFlow<Map<String, DeviceState>> = _devices
+
+    // For exponential backoff. Keyed by persistent device name.
+    private val _retryCounts = MutableStateFlow<Map<String, Int>>(emptyMap())
 
     // For topology management. A map of device name to its set of neighbors' names.
     private val _networkGraph = MutableStateFlow<Map<String, Set<String>>>(emptyMap())

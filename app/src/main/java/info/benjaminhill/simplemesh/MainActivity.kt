@@ -59,13 +59,13 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             SimpleMeshTheme {
-                // Prompts the user for permissions required by the Nearby Connections API.
-                RequestPermissions()
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    DeviceList(
-                        devices = viewModel.devices.collectAsState().value,
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                RequestPermissions {
+                    Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                        DeviceList(
+                            devices = viewModel.devices.collectAsState().value,
+                            modifier = Modifier.padding(innerPadding)
+                        )
+                    }
                 }
             }
         }
@@ -85,7 +85,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun RequestPermissions() {
+fun RequestPermissions(content: @Composable () -> Unit) {
     val permissionsToRequest =
         arrayOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
@@ -95,7 +95,6 @@ fun RequestPermissions() {
 
     val allPermissionsGranted = remember { mutableStateOf(false) }
 
-    // The Android mechanism for showing the permission request dialog.
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -105,7 +104,9 @@ fun RequestPermissions() {
         launcher.launch(permissionsToRequest)
     }
 
-    if (!allPermissionsGranted.value) {
+    if (allPermissionsGranted.value) {
+        content()
+    } else {
         Text("All permissions are required for the app to function.")
     }
 }
@@ -114,23 +115,26 @@ fun RequestPermissions() {
 fun DeviceList(devices: Map<String, DeviceState>, modifier: Modifier = Modifier) {
     LazyColumn(modifier = modifier) {
         items(devices.values.toList()) { device ->
-            Row(
-                modifier = Modifier.padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Select an icon and color based on the device's connection status.
+            DeviceRow(device)
+        }
+    }
+}
 
-                Icon(
-                    imageVector = device.phase.icon,
-                    contentDescription = null,
-                    tint = device.phase.color
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Column {
-                    Text(text = "${device.name} (${device.endpointId})")
-                    Text(text = device.phase.toString(), color = device.phase.color)
-                }
-            }
+@Composable
+fun DeviceRow(device: DeviceState) {
+    Row(
+        modifier = Modifier.padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = device.phase.icon,
+            contentDescription = "Connection phase: ${device.phase}",
+            tint = device.phase.color
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+            Text(text = "${device.name} (${device.endpointId})")
+            Text(text = device.phase.toString(), color = device.phase.color)
         }
     }
 }

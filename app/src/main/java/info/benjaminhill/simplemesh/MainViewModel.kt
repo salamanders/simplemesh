@@ -25,7 +25,11 @@ class MainViewModel(private val nearbyConnectionsManager: NearbyConnectionsManag
     // after the last collector disappears. This is useful to keep data across screen rotations
     // without having to re-fetch everything.
     val devices: StateFlow<Map<String, DeviceState>> = DevicesRegistry.devices
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5.seconds.inWholeMilliseconds), emptyMap())
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5.seconds.inWholeMilliseconds),
+            emptyMap()
+        )
 
     fun startAdvertising() {
         nearbyConnectionsManager.startAdvertising()

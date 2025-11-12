@@ -19,6 +19,7 @@ enum class ConnectionPhase(
 ) {
     DISCOVERED(30.seconds, { ERROR }, Icons.Default.Info, Color.Blue),
     CONNECTING(30.seconds, { ERROR }, Icons.Default.Info, Color.Gray),
+
     // Up to the local node to send the ping within the timeout and get the pong back
     CONNECTED(1.minutes, { ERROR }, Icons.Default.CheckCircle, Color.Green),
     DISCONNECTED(30.seconds, { ERROR }, Icons.Default.Close, Color.Gray),

@@ -246,7 +246,8 @@ class NearbyConnectionsManager(
                 val peerToConnect = unconnectedPeers.firstOrNull()
 
                 if (peerToConnect != null) {
-                    Timber.tag("P2P_MESH").d("manageConnections: Attempting to connect to an unconnected peer: $peerToConnect")
+                    Timber.tag("P2P_MESH")
+                        .d("manageConnections: Attempting to connect to an unconnected peer: $peerToConnect")
                     connectionsClient.requestConnection(
                         DeviceIdentifier.get(activity),
                         peerToConnect,
@@ -257,7 +258,8 @@ class NearbyConnectionsManager(
                         !DevicesRegistry.devices.value.containsKey(it)
                     }
                     if (randomPeer != null) {
-                        Timber.tag("P2P_MESH").d("manageConnections: Attempting to connect to a random peer: $randomPeer")
+                        Timber.tag("P2P_MESH")
+                            .d("manageConnections: Attempting to connect to a random peer: $randomPeer")
                         connectionsClient.requestConnection(
                             DeviceIdentifier.get(activity),
                             randomPeer,

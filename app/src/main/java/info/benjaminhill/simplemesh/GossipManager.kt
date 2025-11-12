@@ -50,7 +50,8 @@ class GossipManager(
             }
         }
         if (changed) {
-            Timber.tag("P22P_MESH").d("Gossip: Merged network graph. New size: ${currentGraph.size}")
+            Timber.tag("P22P_MESH")
+                .d("Gossip: Merged network graph. New size: ${currentGraph.size}")
             DevicesRegistry.updateNetworkGraph(currentGraph)
         }
     }

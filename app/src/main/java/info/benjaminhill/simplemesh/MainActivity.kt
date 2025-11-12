@@ -35,7 +35,17 @@ class MainActivity : ComponentActivity() {
 
     // Handles the low-level device-to-device communication.
     private val nearbyConnectionsManager by lazy {
-        NearbyConnectionsManager(this, lifecycleScope)
+        NearbyConnectionsManager(this, lifecycleScope).apply {
+            val gossipManager = GossipManager(lifecycleScope, this)
+            setGossipManager(gossipManager)
+            gossipManager.start()
+            val routingEngine = RoutingEngine(this)
+            setRoutingEngine(routingEngine)
+        }
+    }
+
+    private val healingService by lazy {
+        HealingService(nearbyConnectionsManager, lifecycleScope)
     }
 
     // Holds the state for the UI, surviving screen rotations.
@@ -59,6 +69,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+        healingService.start()
     }
 
     override fun onResume() {

@@ -88,20 +88,20 @@ This document outlines the networking features implemented in the SimpleMesh And
 - [x] **Intelligent Connection Slot Management:** The app uses the network map to make smart
   connection decisions, such as prioritizing connections to previously unknown parts of the network.
     - Implemented in `NearbyConnectionsManager.kt` in the `manageConnections` function.
-- [ ] **Multi-Hop Routing:** The app can route messages to peers that are not directly connected.
-- [ ] **Mesh Healing:** The app can detect and repair network partitions.
+- [x] **Multi-Hop Routing:** The app can route messages to peers that are not directly connected.
+- [x] **Mesh Healing:** The app can detect and repair network partitions.
 
 ## Conclusion: Summary of Required Architectures
 
-- [ ] **The Connection Manager:** A dedicated manager for connection logic.
+- [x] **The Connection Manager:** A dedicated manager for connection logic.
 - [x] **The Liveness Manager:** A dedicated manager for the liveness protocol.
     - Implemented via `ConnectionPhase` timeouts.
 - [x] **The Topology Manager:** A dedicated manager for the gossip protocol.
     - Implemented in `GossipManager.kt`.
 - [x] **The Connection Slot Manager:** A dedicated manager for connection slot management.
     - Implemented in `NearbyConnectionsManager.kt`.
-- [ ] **The Routing Engine:** A dedicated manager for multi-hop routing.
-- [ ] **The Healing Service:** A dedicated manager for mesh healing.
+- [x] **The Routing Engine:** A dedicated manager for multi-hop routing.
+- [x] **The Healing Service:** A dedicated manager for mesh healing.
 
 # **Architecting a Large-Scale (30+ Node) Multi-Hop Mesh Network on Android's Strategy.P2P\_CLUSTER
 

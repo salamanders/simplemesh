@@ -26,7 +26,8 @@ class GossipManager(
     private fun gossip() {
         val networkGraph = DevicesRegistry.networkGraph.value
         if (networkGraph.isNotEmpty()) {
-            val json = gson.toJson(networkGraph)
+            val gossipPacket = Packet.GossipPacket(gson.toJson(networkGraph).toByteArray())
+            val json = gson.toJson(gossipPacket)
             nearbyConnectionsManager.broadcast(json.toByteArray())
         }
     }

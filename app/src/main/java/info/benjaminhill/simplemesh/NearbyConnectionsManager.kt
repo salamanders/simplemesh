@@ -15,6 +15,7 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -36,11 +37,17 @@ class NearbyConnectionsManager(
     private val connectionsClient: ConnectionsClient by lazy {
         Nearby.getConnectionsClient(activity)
     }
+    private val gson = Gson()
 
     private var gossipManager: GossipManager? = null
+    private var routingEngine: RoutingEngine? = null
 
     fun setGossipManager(gossipManager: GossipManager) {
         this.gossipManager = gossipManager
+    }
+
+    fun setRoutingEngine(routingEngine: RoutingEngine) {
+        this.routingEngine = routingEngine
     }
 
     companion object {
@@ -82,7 +89,16 @@ class NearbyConnectionsManager(
                                 }
 
                                 else -> {
-                                    gossipManager?.handlePayload(data)
+                                    when (val packet =
+                                        gson.fromJson(String(data), Packet::class.java)) {
+                                        is Packet.GossipPacket -> gossipManager?.handlePayload(
+                                            packet.data
+                                        )
+
+                                        is Packet.MeshPacket -> routingEngine?.handlePayload(
+                                            gson.toJson(packet.meshPayload).toByteArray()
+                                        )
+                                    }
                                 }
                             }
                         }

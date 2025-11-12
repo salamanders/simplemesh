@@ -137,32 +137,31 @@ class NearbyConnectionsManager(
 
         // a connection attempt succeeds or fails.
         override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
-            val status = when (result.status.statusCode) {
+            val newPhase = when (result.status.statusCode) {
                 ConnectionsStatusCodes.STATUS_OK -> ConnectionPhase.CONNECTED
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> ConnectionPhase.REJECTED
                 else -> ConnectionPhase.ERROR
             }
-            Timber.tag("P2P_MESH").d("onConnectionResult: endpointId=$endpointId, status=$status")
-            if (status == ConnectionPhase.CONNECTED) {
-                val localDeviceName = DeviceIdentifier.get(activity)
-                val connectedNeighbors = DevicesRegistry.devices.value.values
-                    .filter { it.phase == ConnectionPhase.CONNECTED }
-                    .map { it.name }
-                    .toSet()
-                DevicesRegistry.updateLocalDeviceInGraph(localDeviceName, connectedNeighbors)
-                connectedSendPing(endpointId)
-            } else {
-                val device = DevicesRegistry.getLatestDeviceState(endpointId)
-                if (device != null) {
-                    DevicesRegistry.updateDeviceStatus(
-                        endpointId = endpointId,
-                        externalScope = externalScope,
-                        newPhase = status
-                    )
-                    // STATUS_ERROR is a transient error, so we should retry.
-                    if (result.status.statusCode == ConnectionsStatusCodes.STATUS_ERROR) {
-                        reconnectWithBackoff(device.name)
-                    }
+            Timber.tag("P2P_MESH")
+                .d("onConnectionResult: endpointId=$endpointId, status=$newPhase")
+
+            DevicesRegistry.getLatestDeviceState(endpointId)?.let { device ->
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId = endpointId,
+                    externalScope = externalScope,
+                    newPhase = newPhase
+                )
+
+                if (newPhase == ConnectionPhase.CONNECTED) {
+                    val localDeviceName = DeviceIdentifier.get(activity)
+                    val connectedNeighbors = DevicesRegistry.devices.value.values
+                        .filter { it.phase == ConnectionPhase.CONNECTED }
+                        .map { it.name }
+                        .toSet()
+                    DevicesRegistry.updateLocalDeviceInGraph(localDeviceName, connectedNeighbors)
+                    connectedSendPing(endpointId)
+                } else if (result.status.statusCode == ConnectionsStatusCodes.STATUS_ERROR) {
+                    reconnectWithBackoff(device.name)
                 }
             }
         }
@@ -296,40 +295,34 @@ class NearbyConnectionsManager(
         }
     }
 
-    private fun reconnectWithBackoff(name: String) {
-        externalScope.launch {
-            // If we are connected to other devices, don't try to reconnect.
-            // Let the normal discovery process find the device again.
-            val otherConnectedDevices = DevicesRegistry.devices.value.values.any {
-                it.phase == ConnectionPhase.CONNECTED
-            }
-            if (otherConnectedDevices) {
-                Timber.tag("P2P_MESH")
-                    .i("reconnectWithBackoff: Other devices are connected, aborting reconnection attempt for $name.")
-                return@launch
-            }
-
-            val retryCount = DevicesRegistry.getRetryCount(name)
-            if (retryCount >= 4) {
-                Timber.tag("P2P_MESH")
-                    .w("reconnectWithBackoff: Device $name reached max retries, giving up.")
-                DevicesRegistry.devices.value.values.find { it.name == name }?.let {
-                    DevicesRegistry.remove(it.endpointId)
-                }
-                return@launch
-            }
-
-            val delayDuration = (5 * (1 shl retryCount)).seconds
-            val jitter = (0..1000).random()
+    private fun reconnectWithBackoff(name: String) = externalScope.launch {
+        // If we are connected to other devices, don't try to reconnect.
+        // Let the normal discovery process find the device again.
+        if (DevicesRegistry.devices.value.values.any { it.phase == ConnectionPhase.CONNECTED }) {
             Timber.tag("P2P_MESH")
-                .i("reconnectWithBackoff: Attempting to reconnect to $name in $delayDuration (retry #${retryCount + 1}) with ${jitter}ms jitter")
-            delay(delayDuration.inWholeMilliseconds + jitter)
-
-            DevicesRegistry.incrementRetryCount(name)
-
-            stopAll()
-            startAdvertising()
-            startDiscovery()
+                .i("reconnectWithBackoff: Other devices are connected, aborting reconnection attempt for $name.")
+            return@launch
         }
+
+        val retryCount = DevicesRegistry.getRetryCount(name)
+        if (retryCount >= 4) {
+            Timber.tag("P2P_MESH")
+                .w("reconnectWithBackoff: Device $name reached max retries, giving up.")
+            DevicesRegistry.devices.value.values.find { it.name == name }
+                ?.let { DevicesRegistry.remove(it.endpointId) }
+            return@launch
+        }
+
+        val delayDuration = (5 * (1 shl retryCount)).seconds
+        val jitter = (0..1000).random()
+        Timber.tag("P2P_MESH")
+            .i("reconnectWithBackoff: Attempting to reconnect to $name in $delayDuration (retry #${retryCount + 1}) with ${jitter}ms jitter")
+        delay(delayDuration.inWholeMilliseconds + jitter)
+
+        DevicesRegistry.incrementRetryCount(name)
+
+        stopAll()
+        startAdvertising()
+        startDiscovery()
     }
 }

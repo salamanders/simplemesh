@@ -90,20 +90,17 @@ object DevicesRegistry {
         newPhase: ConnectionPhase?,
         newName: String? = null,
     ) {
-        val existingDevice = _devices.value[endpointId]
-        val name = newName ?: existingDevice?.name ?: "Unknown"
+        // Cancel any pending follow-up action for the existing device
+        _devices.value[endpointId]?.followUpAction?.cancel()
 
-        // Cancel any existing job
-        existingDevice?.followUpAction?.cancel()
+        val name = newName ?: _devices.value[endpointId]?.name ?: "Unknown"
 
         if (newPhase != null) {
-            _devices.value += endpointId to DeviceState(
+            _devices.value = _devices.value + (endpointId to DeviceState(
                 endpointId = endpointId,
                 name = name,
                 phase = newPhase,
-            ).apply {
-                startAutoTimeout(externalScope)
-            }
+            ).also { it.startAutoTimeout(externalScope) })
         } else {
             remove(endpointId)
         }

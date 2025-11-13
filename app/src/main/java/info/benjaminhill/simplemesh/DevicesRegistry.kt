@@ -75,6 +75,17 @@ object DevicesRegistry {
         _deviceNameStates.value += localDeviceName to currentState.copy(neighbors = neighbors)
     }
 
+    fun removeDeviceFromGraph(deviceName: String) {
+        val currentStates = _deviceNameStates.value.toMutableMap()
+        currentStates.remove(deviceName)
+        currentStates.forEach { (name, state) ->
+            if (state.neighbors.contains(deviceName)) {
+                currentStates[name] = state.copy(neighbors = state.neighbors - deviceName)
+            }
+        }
+        _deviceNameStates.value = currentStates
+    }
+
     fun remove(endpointId: String) {
         val device = getLatestDeviceState(endpointId)
         if (device != null) {

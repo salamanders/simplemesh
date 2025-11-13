@@ -37,7 +37,8 @@ data class MeshPayload(
 }
 
 class RoutingEngine(
-    private val nearbyConnectionsManager: NearbyConnectionsManager
+    private val nearbyConnectionsManager: NearbyConnectionsManager,
+    private val myDeviceName: String,
 ) {
     private val seenMessageIds = mutableSetOf<String>()
 
@@ -48,19 +49,27 @@ class RoutingEngine(
         }
         seenMessageIds.add(meshPayload.messageId)
 
+        if (meshPayload.destEndpointId == myDeviceName) {
+            // This is for me, process it.
+            Timber.tag("P2P_MESH")
+                .d("RoutingEngine: Received direct message with messageId: ${meshPayload.messageId}")
+            // ... (processing logic would go here)
+            return // Don't forward
+        }
+
         if (meshPayload.destEndpointId == "BROADCAST") {
             // Process the data
             Timber.tag("P2P_MESH")
                 .d("RoutingEngine: Received broadcast with messageId: ${meshPayload.messageId}")
-            // ...
+            // ... (processing logic would go here)
+        }
 
-            // Forward the payload if TTL is greater than 0
-            if (meshPayload.ttl > 0) {
-                meshPayload.ttl--
-                val meshPacket = Packet.MeshPacket(meshPayload)
-                val bytes = Cbor.encodeToByteArray(Packet.serializer(), meshPacket)
-                nearbyConnectionsManager.broadcast(bytes)
-            }
+        // Forward the payload if TTL is greater than 0
+        if (meshPayload.ttl > 0) {
+            meshPayload.ttl--
+            val meshPacket = Packet.MeshPacket(meshPayload)
+            val bytes = Cbor.encodeToByteArray(Packet.serializer(), meshPacket)
+            nearbyConnectionsManager.broadcast(bytes)
         }
     }
 }

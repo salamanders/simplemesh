@@ -96,11 +96,11 @@ object DevicesRegistry {
         val name = newName ?: _devices.value[endpointId]?.name ?: "Unknown"
 
         if (newPhase != null) {
-            _devices.value = _devices.value + (endpointId to DeviceState(
-                endpointId = endpointId,
-                name = name,
-                phase = newPhase,
-            ).also { it.startAutoTimeout(externalScope) })
+            _devices.value += (endpointId to DeviceState(
+                            endpointId = endpointId,
+                            name = name,
+                            phase = newPhase,
+                        ).also { it.startAutoTimeout(externalScope) })
         } else {
             remove(endpointId)
         }

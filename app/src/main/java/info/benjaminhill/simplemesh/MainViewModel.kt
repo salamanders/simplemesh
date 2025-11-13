@@ -9,12 +9,17 @@ import kotlinx.coroutines.flow.stateIn
 import kotlin.time.Duration.Companion.seconds
 
 // Holds the list of devices to be displayed on the screen.
-class MainViewModel(private val nearbyConnectionsManager: NearbyConnectionsManager) : ViewModel() {
+class MainViewModel(
+    private val nearbyConnectionsManager: NearbyConnectionsManager,
+    myDeviceName: String
+) : ViewModel() {
 
     private val gossipManager = GossipManager(viewModelScope, nearbyConnectionsManager)
+    private val routingEngine = RoutingEngine(nearbyConnectionsManager, myDeviceName)
 
     init {
         nearbyConnectionsManager.setGossipManager(gossipManager)
+        nearbyConnectionsManager.setRoutingEngine(routingEngine)
         gossipManager.start()
     }
 
@@ -45,13 +50,16 @@ class MainViewModel(private val nearbyConnectionsManager: NearbyConnectionsManag
 }
 
 // Creates the MainViewModel, allowing us to pass in dependencies from the Activity.
-class MainViewModelFactory(private val nearbyConnectionsManager: NearbyConnectionsManager) :
+class MainViewModelFactory(
+    private val nearbyConnectionsManager: NearbyConnectionsManager,
+    private val myDeviceName: String
+) :
     ViewModelProvider.Factory {
     // Called by the Android system to create a MainViewModel instance.
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             @Suppress("UNCHECKED_CAST")
-            return MainViewModel(nearbyConnectionsManager) as T
+            return MainViewModel(nearbyConnectionsManager, myDeviceName) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")
     }

@@ -35,13 +35,7 @@ class MainActivity : ComponentActivity() {
 
     // Handles the low-level device-to-device communication.
     private val nearbyConnectionsManager by lazy {
-        NearbyConnectionsManager(this, lifecycleScope).apply {
-            val gossipManager = GossipManager(lifecycleScope, this)
-            setGossipManager(gossipManager)
-            gossipManager.start()
-            val routingEngine = RoutingEngine(this)
-            setRoutingEngine(routingEngine)
-        }
+        NearbyConnectionsManager(this, lifecycleScope)
     }
 
     private val healingService by lazy {
@@ -51,7 +45,7 @@ class MainActivity : ComponentActivity() {
     // Holds the state for the UI, surviving screen rotations.
     private val viewModel: MainViewModel by viewModels {
         // This factory is needed to pass the connections manager to the ViewModel's constructor.
-        MainViewModelFactory(nearbyConnectionsManager)
+        MainViewModelFactory(nearbyConnectionsManager, DeviceIdentifier.get(this))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

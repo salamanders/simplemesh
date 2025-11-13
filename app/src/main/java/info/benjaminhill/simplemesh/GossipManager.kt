@@ -1,10 +1,10 @@
 package info.benjaminhill.simplemesh
 
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
 import kotlin.time.Duration.Companion.seconds
 
@@ -12,8 +12,6 @@ class GossipManager(
     private val externalScope: CoroutineScope,
     private val nearbyConnectionsManager: NearbyConnectionsManager
 ) {
-    private val gson = Gson()
-
     fun start() {
         externalScope.launch {
             while (true) {
@@ -23,21 +21,18 @@ class GossipManager(
         }
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     private fun gossip() {
         val networkGraph = DevicesRegistry.networkGraph.value
         if (networkGraph.isNotEmpty()) {
-            val gossipPacket = Packet.GossipPacket(gson.toJson(networkGraph).toByteArray())
-            val json = gson.toJson(gossipPacket)
-            nearbyConnectionsManager.broadcast(json.toByteArray())
+            val gossipPacket = Packet.GossipPacket(networkGraph)
+            val bytes = Cbor.encodeToByteArray(Packet.serializer(), gossipPacket)
+            nearbyConnectionsManager.broadcast(bytes)
         }
     }
 
-    fun handlePayload(payload: ByteArray) {
-        val type = object : TypeToken<Map<String, Set<String>>>() {}.type
-        val receivedGraph = gson.fromJson<Map<String, Set<String>>>(String(payload), type)
-        if (receivedGraph != null) {
-            mergeGraphs(receivedGraph)
-        }
+    fun handlePayload(payload: Map<String, Set<String>>) {
+        mergeGraphs(payload)
     }
 
     private fun mergeGraphs(receivedGraph: Map<String, Set<String>>) {

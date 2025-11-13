@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 android {
@@ -56,9 +57,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.play.services.nearby)
-
-    // https://mvnrepository.com/artifact/com.google.code.gson/gson
-    implementation(libs.gson)
+    implementation(libs.kotlinx.serialization.cbor)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

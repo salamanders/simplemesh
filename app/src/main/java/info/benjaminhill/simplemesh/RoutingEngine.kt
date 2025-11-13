@@ -1,9 +1,12 @@
 package info.benjaminhill.simplemesh
 
-import com.google.gson.Gson
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
 import java.util.UUID
 
+@Serializable
 data class MeshPayload(
     val messageId: String = UUID.randomUUID().toString(),
     val sourceEndpointId: String,
@@ -16,11 +19,9 @@ class RoutingEngine(
     private val nearbyConnectionsManager: NearbyConnectionsManager
 ) {
     private val seenMessageIds = mutableSetOf<String>()
-    private val gson = Gson()
 
-    fun handlePayload(payload: ByteArray) {
-        val meshPayload = gson.fromJson(String(payload), MeshPayload::class.java)
-
+    @OptIn(ExperimentalSerializationApi::class)
+    fun handlePayload(meshPayload: MeshPayload) {
         if (seenMessageIds.contains(meshPayload.messageId)) {
             return // Already seen this message
         }
@@ -36,8 +37,8 @@ class RoutingEngine(
             if (meshPayload.ttl > 0) {
                 meshPayload.ttl--
                 val meshPacket = Packet.MeshPacket(meshPayload)
-                val json = gson.toJson(meshPacket)
-                nearbyConnectionsManager.broadcast(json.toByteArray())
+                val bytes = Cbor.encodeToByteArray(Packet.serializer(), meshPacket)
+                nearbyConnectionsManager.broadcast(bytes)
             }
         }
     }

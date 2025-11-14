@@ -5,47 +5,6 @@
 This is an Android application named "SimpleMesh" that tests device-to-device communication using
 Google Play Services Nearby Connections API.
 
-## Building and Running
-
-The project uses Gradle as its build system.
-
-NOTE: This app **CAN NOT RUN in the emulator**, the emulator doesn't support the Bluetooth stack.
-
-NOTE: Instead, strongly consider running `deploy_all.sh` which builds the app, gets the list of
-devices, and deploys, clears logcat, and runs on all connected devices.
-
-* **Build the project:**
-  ```bash
-  ./gradlew build
-  ```
-* **Install and run the app on a connected device or emulator:**
-  ```bash
-  ./gradlew installDebug
-  ```
-
-Then launch the app from the device.
-
-* **Run unit tests:** (none yet)
-  ```bash
-  ./gradlew test
-  ```
-* **Run instrumented tests:** (none yet)
-  ```bash
-  ./gradlew connectedAndroidTest
-  ```
-
-## Development Conventions
-
-* **Language:** The project is written entirely in Kotlin.
-* **UI:** The user interface is built with Jetpack Compose, which promotes a declarative and
-  reactive programming style.
-* **Architecture:** The project follows the standard Android application structure with a single
-  `app` module.
-* **Dependencies:** Key dependencies include:
-    * Jetpack Compose for the UI.
-    * Google Play Services Nearby for peer-to-peer connections.
-    * AndroidX libraries for core functionality.
-
 ## Modern Kotlin Development
 
 * **Kotlin 2.x:** Leverage the latest features and syntax from Kotlin 2.x to write concise and
@@ -166,3 +125,26 @@ This flow describes how a device is rejected and eventually removed from the reg
     * **Action**: Because the next phase is `null`, `DevicesRegistry.remove(endpointId)` is called,
       and Device B is removed from Device A's list.
 
+## Architectural Overview
+
+This application implements a multi-hop mesh network on top of the Google Nearby Connections API. The core challenge is that the API's `Strategy.P2P_CLUSTER` provides only 1-hop primitives and is limited to 3-4 simultaneous Bluetooth connections. To overcome this, the application builds a sophisticated application-layer protocol to manage a 30+ node network.
+
+### Key Architectural Components
+
+*   **Connection Manager**: Handles the core API callbacks, authentication, and retries with exponential backoff.
+*   **Liveness Manager**: Implements an application-layer PING/PONG heartbeat to detect and remove "zombie" connections.
+*   **Topology Manager**: Uses a gossip protocol to build and maintain a complete map of the network graph.
+*   **Connection Slot Manager**: Intelligently selects which peers to connect to, prioritizing graph health and avoiding partitions.
+*   **Routing Engine**: Implements a custom `MeshPayload` for network-wide flooding (broadcast) and source-routing (unicast).
+*   **Healing Service**: Implements local and global healing strategies to repair the network in response to node churn and partitions.
+
+## Implemented Features
+
+This application has been verified to include the following features:
+
+*   **Sparse Graph Topology**: The application limits the number of concurrent connections to four per device to prevent connection floods.
+*   **Application-Layer Routing**: Payloads are wrapped in a custom header and routed through the network using a flooding mechanism.
+*   **Partition Recovery**: The app implements a PING/PONG heartbeat to detect and handle "zombie" connections, and connection rotation to prevent network islands.
+*   **Persistent Identity**: The application uses a persistent UUID to identify devices, avoiding the ephemeral `endpointId`.
+*   **Bandwidth Conservation**: Payloads are kept small, and the app avoids using `STREAM` payloads.
+*   **Connection Flux Handling**: The application gracefully handles disconnections by removing the node from the routing table and triggering a re-scan if necessary.

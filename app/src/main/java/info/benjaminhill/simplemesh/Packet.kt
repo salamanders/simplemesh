@@ -24,7 +24,8 @@ sealed class Packet {
         fun fromByteArray(byteArray: ByteArray): Packet =
             Cbor.decodeFromByteArray(serializer(), byteArray)
 
-        // Custom serializer for Instant
+        // Custom serializer for Instant. Keep in case we use later.
+        @SuppressWarnings("unused")
         object InstantSerializer : KSerializer<Instant> {
             override val descriptor: SerialDescriptor =
                 PrimitiveSerialDescriptor("Instant", PrimitiveKind.LONG)

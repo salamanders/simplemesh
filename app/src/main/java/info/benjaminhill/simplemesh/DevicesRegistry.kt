@@ -8,13 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-/**
- * A new data class to hold state keyed by the persistent device name.
- */
-data class DeviceNameState(
-    val retryCount: Int = 0,
-    val neighbors: Set<String> = emptySet(),
-)
 
 object DevicesRegistry {
     // For connection slot management.
@@ -24,6 +17,7 @@ object DevicesRegistry {
     // Internal, mutable list of devices, keyed by ephemeral endpointId.
     // Entire map gets cloned every time there is an update.
     private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
+
     // External, read-only list of devices for the UI.
     val devices: StateFlow<Map<String, DeviceState>> = _devices
 
@@ -108,12 +102,20 @@ object DevicesRegistry {
 
         if (newPhase != null) {
             _devices.value += (endpointId to DeviceState(
-                            endpointId = endpointId,
-                            name = name,
-                            phase = newPhase,
-                        ).also { it.startAutoTimeout(externalScope) })
+                endpointId = endpointId,
+                name = name,
+                phase = newPhase,
+            ).also { it.startAutoTimeout(externalScope) })
         } else {
             remove(endpointId)
         }
     }
+
+    /**
+     * A new data class to hold state keyed by the persistent device name.
+     */
+    data class DeviceNameState(
+        val retryCount: Int = 0,
+        val neighbors: Set<String> = emptySet(),
+    )
 }

@@ -86,12 +86,14 @@ class NearbyConnectionsManager(
                             val endpointToDisconnect =
                                 DevicesRegistry.devices.value.values.find { it.name == peerToDisconnect }?.endpointId
                             if (endpointToDisconnect != null) {
-                                Timber.tag("P2P_MESH").i("onConnectionInitiated: At connection limit, but found redundant peer. Disconnecting from $peerToDisconnect to make room for $endpointId")
+                                Timber.tag("P2P_MESH")
+                                    .i("onConnectionInitiated: At connection limit, but found redundant peer. Disconnecting from $peerToDisconnect to make room for $endpointId")
                                 connectionsClient.disconnectFromEndpoint(endpointToDisconnect)
                                 disconnectedPeer = true
                                 break // Exit inner loop
                             } else {
-                                Timber.tag("P2P_MESH").w("onConnectionInitiated: Wanted to disconnect from redundant peer $peerToDisconnect, but could not find endpointId.")
+                                Timber.tag("P2P_MESH")
+                                    .w("onConnectionInitiated: Wanted to disconnect from redundant peer $peerToDisconnect, but could not find endpointId.")
                             }
                         }
                     }
@@ -376,7 +378,8 @@ class NearbyConnectionsManager(
 
     fun broadcast(data: ByteArray) {
         if (data.size > MAX_PAYLOAD_SIZE) {
-            Timber.tag("P2P_MESH").e("broadcast: Payload size ${data.size} exceeds MAX_PAYLOAD_SIZE ${MAX_PAYLOAD_SIZE}. Dropping payload.")
+            Timber.tag("P2P_MESH")
+                .e("broadcast: Payload size ${data.size} exceeds MAX_PAYLOAD_SIZE ${MAX_PAYLOAD_SIZE}. Dropping payload.")
             return
         }
         val connectedDevices =

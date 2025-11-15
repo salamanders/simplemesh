@@ -1,9 +1,11 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.strategy
 
+import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -30,7 +32,7 @@ class HealingService(
                 delay(15.seconds)
                 nearbyConnectionsManager.stopAll() // To avoid continuous battery drain
                 nearbyConnectionsManager.startAdvertising() // Restart advertising
-                delay(5 * 60 * 1000L) // 5 minutes
+                delay(5.minutes) // 5 minutes
             }
         }
     }

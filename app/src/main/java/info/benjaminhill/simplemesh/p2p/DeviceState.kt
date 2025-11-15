@@ -1,5 +1,4 @@
-package info.benjaminhill.simplemesh
-
+package info.benjaminhill.simplemesh.p2p
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job

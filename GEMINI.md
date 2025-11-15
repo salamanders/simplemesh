@@ -127,24 +127,38 @@ This flow describes how a device is rejected and eventually removed from the reg
 
 ## Architectural Overview
 
-This application implements a multi-hop mesh network on top of the Google Nearby Connections API. The core challenge is that the API's `Strategy.P2P_CLUSTER` provides only 1-hop primitives and is limited to 3-4 simultaneous Bluetooth connections. To overcome this, the application builds a sophisticated application-layer protocol to manage a 30+ node network.
+This application implements a multi-hop mesh network on top of the Google Nearby Connections API.
+The core challenge is that the API's `Strategy.P2P_CLUSTER` provides only 1-hop primitives and is
+limited to 3-4 simultaneous Bluetooth connections. To overcome this, the application builds a
+sophisticated application-layer protocol to manage a 30+ node network.
 
 ### Key Architectural Components
 
-*   **Connection Manager**: Handles the core API callbacks, authentication, and retries with exponential backoff.
-*   **Liveness Manager**: Implements an application-layer PING/PONG heartbeat to detect and remove "zombie" connections.
-*   **Topology Manager**: Uses a gossip protocol to build and maintain a complete map of the network graph.
-*   **Connection Slot Manager**: Intelligently selects which peers to connect to, prioritizing graph health and avoiding partitions.
-*   **Routing Engine**: Implements a custom `MeshPayload` for network-wide flooding (broadcast) and source-routing (unicast).
-*   **Healing Service**: Implements local and global healing strategies to repair the network in response to node churn and partitions.
+* **Connection Manager**: Handles the core API callbacks, authentication, and retries with
+  exponential backoff.
+* **Liveness Manager**: Implements an application-layer PING/PONG heartbeat to detect and remove "
+  zombie" connections.
+* **Topology Manager**: Uses a gossip protocol to build and maintain a complete map of the network
+  graph.
+* **Connection Slot Manager**: Intelligently selects which peers to connect to, prioritizing graph
+  health and avoiding partitions.
+* **Routing Engine**: Implements a custom `MeshPayload` for network-wide flooding (broadcast) and
+  source-routing (unicast).
+* **Healing Service**: Implements local and global healing strategies to repair the network in
+  response to node churn and partitions.
 
 ## Implemented Features
 
 This application has been verified to include the following features:
 
-*   **Sparse Graph Topology**: The application limits the number of concurrent connections to four per device to prevent connection floods.
-*   **Application-Layer Routing**: Payloads are wrapped in a custom header and routed through the network using a flooding mechanism.
-*   **Partition Recovery**: The app implements a PING/PONG heartbeat to detect and handle "zombie" connections, and connection rotation to prevent network islands.
-*   **Persistent Identity**: The application uses a persistent UUID to identify devices, avoiding the ephemeral `endpointId`.
-*   **Bandwidth Conservation**: Payloads are kept small, and the app avoids using `STREAM` payloads.
-*   **Connection Flux Handling**: The application gracefully handles disconnections by removing the node from the routing table and triggering a re-scan if necessary.
+* **Sparse Graph Topology**: The application limits the number of concurrent connections to four per
+  device to prevent connection floods.
+* **Application-Layer Routing**: Payloads are wrapped in a custom header and routed through the
+  network using a flooding mechanism.
+* **Partition Recovery**: The app implements a PING/PONG heartbeat to detect and handle "zombie"
+  connections, and connection rotation to prevent network islands.
+* **Persistent Identity**: The application uses a persistent UUID to identify devices, avoiding the
+  ephemeral `endpointId`.
+* **Bandwidth Conservation**: Payloads are kept small, and the app avoids using `STREAM` payloads.
+* **Connection Flux Handling**: The application gracefully handles disconnections by removing the
+  node from the routing table and triggering a re-scan if necessary.

@@ -1,5 +1,8 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.strategy
 
+import info.benjaminhill.simplemesh.p2p.DevicesRegistry
+import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
+import info.benjaminhill.simplemesh.p2p.Packet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -26,7 +29,7 @@ class GossipManager(
         val networkGraph = DevicesRegistry.networkGraph.value
         if (networkGraph.isNotEmpty()) {
             val gossipPacket = Packet.GossipPacket(networkGraph)
-            val bytes = Cbor.encodeToByteArray(Packet.serializer(), gossipPacket)
+            val bytes = Cbor.encodeToByteArray(Packet.Companion.serializer(), gossipPacket)
             nearbyConnectionsManager.broadcast(bytes)
         }
     }

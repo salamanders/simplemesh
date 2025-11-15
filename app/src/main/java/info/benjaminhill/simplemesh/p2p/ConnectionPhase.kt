@@ -1,4 +1,4 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.p2p
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle

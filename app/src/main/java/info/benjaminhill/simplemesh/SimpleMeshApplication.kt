@@ -1,6 +1,7 @@
 package info.benjaminhill.simplemesh
 
 import android.app.Application
+import info.benjaminhill.simplemesh.p2p.DeviceIdentifier
 import timber.log.Timber
 
 class SimpleMeshApplication : Application() {

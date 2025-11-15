@@ -3,6 +3,10 @@ package info.benjaminhill.simplemesh
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import info.benjaminhill.simplemesh.p2p.DeviceState
+import info.benjaminhill.simplemesh.p2p.DevicesRegistry
+import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
+import info.benjaminhill.simplemesh.strategy.GossipManager
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn

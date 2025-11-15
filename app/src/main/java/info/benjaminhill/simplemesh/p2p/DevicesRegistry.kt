@@ -1,4 +1,4 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.p2p
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-
 
 /**
  * A centralized, singleton registry for managing the state of all discovered and connected devices.
@@ -26,6 +25,7 @@ object DevicesRegistry {
     // Internal, mutable list of devices, keyed by ephemeral endpointId.
     // Entire map gets cloned every time there is an update.
     private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
+
     // External, read-only list of devices for the UI.
     val devices get() = _devices.asStateFlow()
 

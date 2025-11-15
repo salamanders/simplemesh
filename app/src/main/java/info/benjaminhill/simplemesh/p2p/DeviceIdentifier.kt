@@ -1,4 +1,4 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.p2p
 
 import android.content.Context
 import android.content.SharedPreferences

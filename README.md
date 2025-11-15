@@ -1,4 +1,5 @@
-This is an Android application named "SimpleMesh" that tests device-to-device communication using Google Play Services Nearby Connections API.
+This is an Android application named "SimpleMesh" that tests device-to-device communication using
+Google Play Services Nearby Connections API.
 
 ## Building and Running
 

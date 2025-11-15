@@ -1,4 +1,4 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.p2p
 
 import android.app.Activity
 import com.google.android.gms.nearby.Nearby
@@ -15,6 +15,9 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
+import info.benjaminhill.simplemesh.RoutingEngine
+import info.benjaminhill.simplemesh.strategy.ConnectionStrategy
+import info.benjaminhill.simplemesh.strategy.GossipManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -100,7 +103,8 @@ class NearbyConnectionsManager(
                             val data = payload.asBytes()!!
                             when {
                                 data.contentEquals(PING) -> {
-                                    Timber.tag("P2P_MESH").d("Received PING from $endpointId")
+                                    Timber.tag("P2P_MESH")
+                                        .d("Received PING from $endpointId")
                                     connectionsClient.sendPayload(
                                         endpointId,
                                         Payload.fromBytes(PONG)
@@ -108,7 +112,8 @@ class NearbyConnectionsManager(
                                 }
 
                                 data.contentEquals(PONG) -> {
-                                    Timber.tag("P2P_MESH").d("Received PONG from $endpointId")
+                                    Timber.tag("P2P_MESH")
+                                        .d("Received PONG from $endpointId")
                                     connectedSendPing(endpointId, 30.seconds)
                                 }
 

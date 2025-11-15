@@ -1,5 +1,6 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.p2p
 
+import info.benjaminhill.simplemesh.MeshPayload
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable

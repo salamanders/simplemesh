@@ -1,5 +1,7 @@
 package info.benjaminhill.simplemesh
 
+import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
+import info.benjaminhill.simplemesh.p2p.Packet
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.cbor.Cbor

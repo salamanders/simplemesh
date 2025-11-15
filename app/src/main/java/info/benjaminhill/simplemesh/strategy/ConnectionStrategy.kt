@@ -1,8 +1,11 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.strategy
 
 import android.app.Activity
 import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback
 import com.google.android.gms.nearby.connection.ConnectionsClient
+import info.benjaminhill.simplemesh.p2p.ConnectionPhase
+import info.benjaminhill.simplemesh.p2p.DeviceIdentifier
+import info.benjaminhill.simplemesh.p2p.DevicesRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay

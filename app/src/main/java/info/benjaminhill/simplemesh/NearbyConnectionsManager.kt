@@ -16,12 +16,10 @@ import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 import kotlin.time.Duration
-import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -48,11 +46,12 @@ class NearbyConnectionsManager(
         Nearby.getConnectionsClient(activity)
     }
 
+    private val connectionStrategy: ConnectionStrategy by lazy {
+        ConnectionStrategy(activity, connectionsClient, externalScope, connectionLifecycleCallback)
+    }
+
     private var gossipManager: GossipManager? = null
     private var routingEngine: RoutingEngine? = null
-
-    private var manageConnectionsJob: Job? = null
-    private var connectionRotationJob: Job? = null
 
     fun setGossipManager(gossipManager: GossipManager) {
         this.gossipManager = gossipManager
@@ -79,37 +78,7 @@ class NearbyConnectionsManager(
             val connectedPeers =
                 DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
             if (connectedPeers.size >= MAX_CONNECTIONS) {
-                val networkGraph = DevicesRegistry.networkGraph.value
-                val myNeighbors =
-                    networkGraph[DeviceIdentifier.get(activity)]?.toList() ?: emptyList()
-
-                var disconnectedPeer = false
-                // Find a pair of my neighbors who are also neighbors with each other
-                for (i in myNeighbors.indices) {
-                    for (j in i + 1 until myNeighbors.size) {
-                        val neighbor1 = myNeighbors[i]
-                        val neighbor2 = myNeighbors[j]
-                        if (networkGraph[neighbor1]?.contains(neighbor2) == true) {
-                            val peerToDisconnect =
-                                listOf(neighbor1, neighbor2).random() // Pick one to disconnect
-                            val endpointToDisconnect =
-                                DevicesRegistry.devices.value.values.find { it.name == peerToDisconnect }?.endpointId
-                            if (endpointToDisconnect != null) {
-                                Timber.tag("P2P_MESH")
-                                    .i("onConnectionInitiated: At connection limit, but found redundant peer. Disconnecting from $peerToDisconnect to make room for $endpointId")
-                                connectionsClient.disconnectFromEndpoint(endpointToDisconnect)
-                                disconnectedPeer = true
-                                break // Exit inner loop
-                            } else {
-                                Timber.tag("P2P_MESH")
-                                    .w("onConnectionInitiated: Wanted to disconnect from redundant peer $peerToDisconnect, but could not find endpointId.")
-                            }
-                        }
-                    }
-                    if (disconnectedPeer) break // Exit outer loop
-                }
-
-                if (!disconnectedPeer) {
+                if (!connectionStrategy.tryDisconnectRedundantPeer(endpointId)) {
                     Timber.tag("P2P_MESH")
                         .i("onConnectionInitiated: Rejecting connection from $endpointId, at capacity and no redundant peers found.")
                     connectionsClient.rejectConnection(endpointId)
@@ -170,23 +139,6 @@ class NearbyConnectionsManager(
                     // Not used in this implementation
                 }
             })
-        }
-
-        // Resets the connection phase every time, and sends a ping in a few seconds
-        fun connectedSendPing(endpointId: String, delay: Duration = 15.seconds) {
-            val device = DevicesRegistry.getLatestDeviceState(endpointId)
-            if (device != null) {
-                DevicesRegistry.resetRetryCount(device.name)
-                DevicesRegistry.updateDeviceStatus(
-                    endpointId = endpointId,
-                    externalScope = externalScope,
-                    newPhase = ConnectionPhase.CONNECTED
-                )
-                externalScope.launch {
-                    delay(delay)
-                    connectionsClient.sendPayload(endpointId, Payload.fromBytes(PING))
-                }
-            }
         }
 
         // a connection attempt succeeds or fails.
@@ -257,7 +209,7 @@ class NearbyConnectionsManager(
     }
 
     fun startDiscovery() {
-        start()
+        connectionStrategy.start()
         Timber.tag("P2P_MESH").d("startDiscovery")
         val discoveryOptions = DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         connectionsClient.startDiscovery(
@@ -295,93 +247,26 @@ class NearbyConnectionsManager(
 
     fun stopAll() {
         Timber.tag("P2P_MESH").d("stopAll")
-        stop()
+        connectionStrategy.stop()
         connectionsClient.stopAllEndpoints()
         connectionsClient.stopAdvertising()
         connectionsClient.stopDiscovery()
     }
 
-    private fun start() {
-        if (manageConnectionsJob?.isActive != true) {
-            manageConnectionsJob = manageConnections()
-        }
-        if (connectionRotationJob?.isActive != true) {
-            connectionRotationJob = connectionRotation()
-        }
-    }
-
-    private fun stop() {
-        manageConnectionsJob?.cancel()
-        connectionRotationJob?.cancel()
-    }
-
-    private fun connectionRotation() = externalScope.launch {
-        while (true) {
-            delay(5.minutes.inWholeMilliseconds + (1..60).random().seconds.inWholeMilliseconds)
-
-            val networkGraph = DevicesRegistry.networkGraph.value
-            val myName = DeviceIdentifier.get(activity)
-            val myNeighbors = networkGraph[myName] ?: emptySet()
-
-            if (myNeighbors.size >= MAX_CONNECTIONS) {
-                // Find leaf nodes (neighbors with only one connection, which is to us)
-                val leafNodes = myNeighbors.filter { neighbor ->
-                    (networkGraph[neighbor]?.size ?: 0) == 1
-                }
-
-                if (leafNodes.isNotEmpty()) {
-                    val nodeToDisconnect = leafNodes.random()
-                    val endpointToDisconnect =
-                        DevicesRegistry.devices.value.values.find { it.name == nodeToDisconnect }?.endpointId
-                    if (endpointToDisconnect != null) {
-                        Timber.tag("P2P_MESH")
-                            .i("Connection Rotation: Disconnecting from leaf node $nodeToDisconnect to find new peers.")
-                        connectionsClient.disconnectFromEndpoint(endpointToDisconnect)
-                    }
-                }
+    // Resets the connection phase every time, and sends a ping in a few seconds
+    private fun connectedSendPing(endpointId: String, delay: Duration = 15.seconds) {
+        val device = DevicesRegistry.getLatestDeviceState(endpointId)
+        if (device != null) {
+            DevicesRegistry.resetRetryCount(device.name)
+            DevicesRegistry.updateDeviceStatus(
+                endpointId = endpointId,
+                externalScope = externalScope,
+                newPhase = ConnectionPhase.CONNECTED
+            )
+            externalScope.launch {
+                delay(delay)
+                connectionsClient.sendPayload(endpointId, Payload.fromBytes(PING))
             }
-        }
-    }
-
-    private fun manageConnections() = externalScope.launch {
-        while (true) {
-            val connectedDevices =
-                DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
-            val potentialPeers = DevicesRegistry.potentialPeers.value
-            if (connectedDevices.size < MAX_CONNECTIONS) {
-                val networkGraph = DevicesRegistry.networkGraph.value
-                val allKnownDevices = networkGraph.keys
-                val unconnectedPeers = potentialPeers.filter {
-                    val device = DevicesRegistry.getLatestDeviceState(it)
-                    device != null && !allKnownDevices.contains(device.name)
-                }
-
-                val peerToConnect = unconnectedPeers.firstOrNull()
-
-                if (peerToConnect != null) {
-                    Timber.tag("P2P_MESH")
-                        .d("manageConnections: Attempting to connect to an unconnected peer: $peerToConnect")
-                    connectionsClient.requestConnection(
-                        DeviceIdentifier.get(activity),
-                        peerToConnect,
-                        connectionLifecycleCallback
-                    )
-                } else {
-                    val randomPeer = potentialPeers.firstOrNull {
-                        !DevicesRegistry.devices.value.containsKey(it)
-                    }
-                    if (randomPeer != null) {
-                        Timber.tag("P2P_MESH")
-                            .d("manageConnections: Attempting to connect to a random peer: $randomPeer")
-                        connectionsClient.requestConnection(
-                            DeviceIdentifier.get(activity),
-                            randomPeer,
-                            connectionLifecycleCallback
-                        )
-                    }
-                }
-            }
-            delay(5.seconds)
         }
     }
 

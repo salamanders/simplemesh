@@ -1,42 +1,15 @@
-package info.benjaminhill.simplemesh
+package info.benjaminhill.simplemesh.strategy
 
 import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import info.benjaminhill.simplemesh.p2p.Packet
+import info.benjaminhill.simplemesh.p2p.PacketType
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
-import java.util.UUID
 
 @Serializable
-data class MeshPayload(
-    val messageId: String = UUID.randomUUID().toString(),
-    val sourceEndpointId: String,
-    val destEndpointId: String, // "BROADCAST" for all
-    var ttl: Int = 10,
-    val data: ByteArray,
-) {
-    override fun equals(other: Any?): Boolean {
-        if (this === other) return true
-        if (javaClass != other?.javaClass) return false
-
-        other as MeshPayload
-
-        if (messageId != other.messageId) return false
-        if (sourceEndpointId != other.sourceEndpointId) return false
-        if (destEndpointId != other.destEndpointId) return false
-
-        return true
-    }
-
-    override fun hashCode(): Int {
-        var result = ttl
-        result = 31 * result + messageId.hashCode()
-        result = 31 * result + sourceEndpointId.hashCode()
-        result = 31 * result + destEndpointId.hashCode()
-        return result
-    }
-}
+data class MeshPacket(val meshPayload: MeshPayload)
 
 class RoutingEngine(
     private val nearbyConnectionsManager: NearbyConnectionsManager,
@@ -69,8 +42,10 @@ class RoutingEngine(
         // Forward the payload if TTL is greater than 0
         if (meshPayload.ttl > 0) {
             meshPayload.ttl--
-            val meshPacket = Packet.MeshPacket(meshPayload)
-            val bytes = Cbor.encodeToByteArray(Packet.serializer(), meshPacket)
+            val meshPacket = MeshPacket(meshPayload)
+            val payload = Cbor.encodeToByteArray(MeshPacket.serializer(), meshPacket)
+            val packet = Packet(PacketType.MESH, payload)
+            val bytes = Cbor.encodeToByteArray(Packet.serializer(), packet)
             nearbyConnectionsManager.broadcast(bytes)
         }
     }

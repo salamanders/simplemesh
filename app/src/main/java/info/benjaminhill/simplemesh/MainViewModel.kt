@@ -7,6 +7,7 @@ import info.benjaminhill.simplemesh.p2p.DeviceState
 import info.benjaminhill.simplemesh.p2p.DevicesRegistry
 import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import info.benjaminhill.simplemesh.strategy.GossipManager
+import info.benjaminhill.simplemesh.strategy.RoutingEngine
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn

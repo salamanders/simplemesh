@@ -9,6 +9,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
 
+/**
+ * A centralized, singleton registry for managing the state of all discovered and connected devices.
+ *
+ * This object serves as the single source of truth for the state of all devices in the network.
+ * It maintains a map of `endpointId` to `DeviceState`, which is exposed as a `StateFlow` to the UI.
+ * It also manages a separate map for exponential backoff retry counts, which is keyed by the
+ * persistent device name.
+ */
 object DevicesRegistry {
     // For connection slot management.
     private val _potentialPeers = MutableStateFlow<Set<String>>(emptySet())

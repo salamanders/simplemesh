@@ -7,6 +7,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
 
+/**
+ * Represents the state of a remote device.
+ *
+ * This data class encapsulates the state of a device, including its `endpointId`, `name`, and
+ * `phase` (connection status). It also includes a mechanism to automatically transition to a new
+ * phase if a device remains in a specific phase for too long. This is implemented using a
+ * `CoroutineScope` and a `delay`.
+ */
 data class DeviceState(
     val endpointId: String,
     val name: String,

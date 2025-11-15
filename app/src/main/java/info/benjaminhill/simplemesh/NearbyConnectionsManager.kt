@@ -26,6 +26,15 @@ import kotlin.time.Duration.Companion.seconds
 
 /**
  * Core class for finding, connecting to, and communicating with other devices.
+ *
+ * This class implements the Nearby Connections API and handles the following responsibilities:
+ * - Advertising and discovering nearby devices.
+ * - Initiating, accepting, and rejecting connections.
+ * - Sending and receiving data (payloads).
+ * - Managing the connection lifecycle and updating the `DevicesRegistry`.
+ * - Implementing a PING/PONG heartbeat to detect and handle "zombie" connections.
+ * - Reconnecting to lost devices with exponential backoff.
+ * - Limiting the number of concurrent connections to avoid connection floods.
  */
 class NearbyConnectionsManager(
     // The main screen, required for NFC and other UI-related connection tasks.

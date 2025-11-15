@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalSerializationApi::class)
+
 package info.benjaminhill.simplemesh.p2p
 
 import android.app.Activity
@@ -15,12 +17,16 @@ import com.google.android.gms.nearby.connection.Payload
 import com.google.android.gms.nearby.connection.PayloadCallback
 import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
-import info.benjaminhill.simplemesh.RoutingEngine
 import info.benjaminhill.simplemesh.strategy.ConnectionStrategy
 import info.benjaminhill.simplemesh.strategy.GossipManager
+import info.benjaminhill.simplemesh.strategy.GossipPacket
+import info.benjaminhill.simplemesh.strategy.MeshPacket
+import info.benjaminhill.simplemesh.strategy.RoutingEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -118,14 +124,16 @@ class NearbyConnectionsManager(
                                 }
 
                                 else -> {
-                                    when (val packet = Packet.fromByteArray(data)) {
-                                        is Packet.GossipPacket -> gossipManager?.handlePayload(
-                                            packet.data
-                                        )
-
-                                        is Packet.MeshPacket -> routingEngine?.handlePayload(
-                                            packet.meshPayload
-                                        )
+                                    val packet = Packet.fromByteArray(data)
+                                    when (packet.type) {
+                                        PacketType.GOSSIP -> {
+                                            val gossipPacket = Cbor.decodeFromByteArray(GossipPacket.serializer(), packet.payload)
+                                            gossipManager?.handlePayload(gossipPacket.data)
+                                        }
+                                        PacketType.MESH -> {
+                                            val meshPacket = Cbor.decodeFromByteArray(MeshPacket.serializer(), packet.payload)
+                                            routingEngine?.handlePayload(meshPacket.meshPayload)
+                                        }
                                     }
                                 }
                             }

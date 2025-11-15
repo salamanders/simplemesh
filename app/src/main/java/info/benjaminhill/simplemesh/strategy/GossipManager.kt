@@ -3,13 +3,18 @@ package info.benjaminhill.simplemesh.strategy
 import info.benjaminhill.simplemesh.p2p.DevicesRegistry
 import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import info.benjaminhill.simplemesh.p2p.Packet
+import info.benjaminhill.simplemesh.p2p.PacketType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
 import kotlin.time.Duration.Companion.seconds
+
+@Serializable
+data class GossipPacket(val data: Map<String, Set<String>>)
 
 class GossipManager(
     private val externalScope: CoroutineScope,
@@ -28,8 +33,10 @@ class GossipManager(
     private fun gossip() {
         val networkGraph = DevicesRegistry.networkGraph.value
         if (networkGraph.isNotEmpty()) {
-            val gossipPacket = Packet.GossipPacket(networkGraph)
-            val bytes = Cbor.encodeToByteArray(Packet.Companion.serializer(), gossipPacket)
+            val gossipPacket = GossipPacket(networkGraph)
+            val payload = Cbor.encodeToByteArray(GossipPacket.serializer(), gossipPacket)
+            val packet = Packet(PacketType.GOSSIP, payload)
+            val bytes = Cbor.encodeToByteArray(Packet.serializer(), packet)
             nearbyConnectionsManager.broadcast(bytes)
         }
     }

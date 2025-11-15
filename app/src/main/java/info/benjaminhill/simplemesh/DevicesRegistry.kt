@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -20,14 +21,13 @@ import kotlinx.coroutines.flow.stateIn
 object DevicesRegistry {
     // For connection slot management.
     private val _potentialPeers = MutableStateFlow<Set<String>>(emptySet())
-    val potentialPeers: StateFlow<Set<String>> = _potentialPeers
+    val potentialPeers get() = _potentialPeers.asStateFlow()
 
     // Internal, mutable list of devices, keyed by ephemeral endpointId.
     // Entire map gets cloned every time there is an update.
     private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
-
     // External, read-only list of devices for the UI.
-    val devices: StateFlow<Map<String, DeviceState>> = _devices
+    val devices get() = _devices.asStateFlow()
 
     // A map of device name to its state.
     private val _deviceNameStates = MutableStateFlow<Map<String, DeviceNameState>>(emptyMap())

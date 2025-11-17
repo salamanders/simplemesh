@@ -15,8 +15,8 @@ import timber.log.Timber
  * `CoroutineScope` and a `delay`.
  */
 data class DeviceState(
-    val endpointId: String,
-    val name: String,
+    val endpointId: EndpointId,
+    val name: EndpointName,
     val phase: ConnectionPhase,
 ) {
     override fun toString() = "DeviceState(endpointId='$endpointId', name='$name', phase=$phase)"

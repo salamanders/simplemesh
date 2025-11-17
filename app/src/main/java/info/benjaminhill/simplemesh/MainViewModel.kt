@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import info.benjaminhill.simplemesh.p2p.DeviceState
 import info.benjaminhill.simplemesh.p2p.DevicesRegistry
+import info.benjaminhill.simplemesh.p2p.EndpointId
+import info.benjaminhill.simplemesh.p2p.EndpointName
 import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import info.benjaminhill.simplemesh.strategy.GossipManager
 import info.benjaminhill.simplemesh.strategy.RoutingEngine
@@ -16,7 +18,7 @@ import kotlin.time.Duration.Companion.seconds
 // Holds the list of devices to be displayed on the screen.
 class MainViewModel(
     private val nearbyConnectionsManager: NearbyConnectionsManager,
-    myDeviceName: String
+    myDeviceName: EndpointName
 ) : ViewModel() {
 
     private val gossipManager = GossipManager(viewModelScope, nearbyConnectionsManager)
@@ -34,7 +36,7 @@ class MainViewModel(
     // SharingStarted.WhileSubscribed(5000) keeps the upstream flow active for 5 seconds
     // after the last collector disappears. This is useful to keep data across screen rotations
     // without having to re-fetch everything.
-    val devices: StateFlow<Map<String, DeviceState>> = DevicesRegistry.devices
+    val devices: StateFlow<Map<EndpointId, DeviceState>> = DevicesRegistry.devices
         .stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5.seconds.inWholeMilliseconds),
@@ -57,7 +59,7 @@ class MainViewModel(
 // Creates the MainViewModel, allowing us to pass in dependencies from the Activity.
 class MainViewModelFactory(
     private val nearbyConnectionsManager: NearbyConnectionsManager,
-    private val myDeviceName: String
+    private val myDeviceName: EndpointName
 ) :
     ViewModelProvider.Factory {
     // Called by the Android system to create a MainViewModel instance.

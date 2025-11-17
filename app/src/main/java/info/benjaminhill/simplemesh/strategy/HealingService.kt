@@ -30,9 +30,8 @@ class HealingService(
                 Timber.tag("P2P_MESH").d("HealingService: Starting periodic discovery.")
                 nearbyConnectionsManager.startDiscovery()
                 delay(15.seconds)
-                nearbyConnectionsManager.stopAll() // To avoid continuous battery drain
-                nearbyConnectionsManager.startAdvertising() // Restart advertising
-                delay(5.minutes) // 5 minutes
+                nearbyConnectionsManager.stopDiscovery()
+                delay(15.minutes) // Was 5 minutes, much less aggressive now.
             }
         }
     }

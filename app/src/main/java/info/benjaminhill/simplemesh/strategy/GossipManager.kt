@@ -1,9 +1,10 @@
 package info.benjaminhill.simplemesh.strategy
 
 import info.benjaminhill.simplemesh.p2p.DevicesRegistry
+import info.benjaminhill.simplemesh.p2p.EndpointName
 import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
-import info.benjaminhill.simplemesh.p2p.Packet
-import info.benjaminhill.simplemesh.p2p.PacketType
+import info.benjaminhill.simplemesh.p2p.TransportFrame
+import info.benjaminhill.simplemesh.p2p.TransportFrameType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -12,9 +13,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
 import kotlin.time.Duration.Companion.seconds
-
-@Serializable
-data class GossipPacket(val data: Map<String, Set<String>>)
 
 class GossipManager(
     private val externalScope: CoroutineScope,
@@ -33,19 +31,19 @@ class GossipManager(
     private fun gossip() {
         val networkGraph = DevicesRegistry.networkGraph.value
         if (networkGraph.isNotEmpty()) {
-            val gossipPacket = GossipPacket(networkGraph)
-            val payload = Cbor.encodeToByteArray(GossipPacket.serializer(), gossipPacket)
-            val packet = Packet(PacketType.GOSSIP, payload)
-            val bytes = Cbor.encodeToByteArray(Packet.serializer(), packet)
+            val topologyGossip = TopologyGossip(networkGraph)
+            val payload = Cbor.encodeToByteArray(TopologyGossip.serializer(), topologyGossip)
+            val transportFrame = TransportFrame(TransportFrameType.TOPOLOGY_GOSSIP, payload)
+            val bytes = Cbor.encodeToByteArray(TransportFrame.serializer(), transportFrame)
             nearbyConnectionsManager.broadcast(bytes)
         }
     }
 
-    fun handlePayload(payload: Map<String, Set<String>>) {
+    fun handlePayload(payload: Map<EndpointName, Set<EndpointName>>) {
         mergeGraphs(payload)
     }
 
-    private fun mergeGraphs(receivedGraph: Map<String, Set<String>>) {
+    private fun mergeGraphs(receivedGraph: Map<EndpointName, Set<EndpointName>>) {
         val currentGraph = DevicesRegistry.networkGraph.value.toMutableMap()
         var changed = false
         receivedGraph.forEach { (deviceName, neighbors) ->
@@ -60,5 +58,10 @@ class GossipManager(
                 .d("Gossip: Merged network graph. New size: ${currentGraph.size}")
             DevicesRegistry.updateNetworkGraph(currentGraph)
         }
+    }
+
+    companion object {
+        @Serializable
+        data class TopologyGossip(val data: Map<EndpointName, Set<EndpointName>>)
     }
 }

@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 @Serializable
-data class MeshPayload(
+data class RoutedMessage(
     val messageId: String = UUID.randomUUID().toString(),
     val sourceEndpointId: String,
     val destEndpointId: String, // "BROADCAST" for all
@@ -15,7 +15,7 @@ data class MeshPayload(
         if (this === other) return true
         if (javaClass != other?.javaClass) return false
 
-        other as MeshPayload
+        other as RoutedMessage
 
         if (messageId != other.messageId) return false
         if (sourceEndpointId != other.sourceEndpointId) return false

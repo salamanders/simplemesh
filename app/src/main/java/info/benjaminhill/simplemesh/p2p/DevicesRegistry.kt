@@ -18,24 +18,21 @@ import kotlinx.coroutines.flow.stateIn
  * persistent device name.
  */
 object DevicesRegistry {
-    // For connection slot management.
-    private val _potentialPeers = MutableStateFlow<Set<String>>(emptySet())
+    // Discovered peers that are qualified connection candidates.
+    private val _potentialPeers = MutableStateFlow<Set<EndpointId>>(emptySet())
     val potentialPeers get() = _potentialPeers.asStateFlow()
 
-    // Internal, mutable list of devices, keyed by ephemeral endpointId.
-    // Entire map gets cloned every time there is an update.
-    private val _devices = MutableStateFlow<Map<String, DeviceState>>(emptyMap())
-
-    // External, read-only list of devices for the UI.
+    // Devices keyed by ephemeral endpointId.
+    private val _devices = MutableStateFlow<Map<EndpointId, DeviceState>>(emptyMap())
     val devices get() = _devices.asStateFlow()
 
     // A map of device name to its state.
-    private val _deviceNameStates = MutableStateFlow<Map<String, DeviceNameState>>(emptyMap())
+    private val _deviceNameStates = MutableStateFlow<Map<EndpointName, DeviceNameState>>(emptyMap())
 
     private val coroutineScope = CoroutineScope(Dispatchers.Default)
 
     // For topology management. A map of device name to its set of neighbors' names.
-    val networkGraph: StateFlow<Map<String, Set<String>>> = _deviceNameStates.map {
+    val networkGraph: StateFlow<Map<EndpointName, Set<EndpointName>>> = _deviceNameStates.map {
         it.mapValues { (_, state) -> state.neighbors }
     }.stateIn(
         scope = coroutineScope,
@@ -43,27 +40,28 @@ object DevicesRegistry {
         initialValue = emptyMap()
     )
 
-    fun getLatestDeviceState(endpointId: String): DeviceState? = this.devices.value[endpointId]
+    fun getLatestDeviceState(endpointId: EndpointId): DeviceState? = this.devices.value[endpointId]
 
-    fun getRetryCount(name: String): Int = _deviceNameStates.value[name]?.retryCount ?: 0
+    fun getRetryCount(name: EndpointName): Int = _deviceNameStates.value[name]?.retryCount ?: 0
 
-    fun incrementRetryCount(name: String) {
+    fun incrementRetryCount(name: EndpointName) {
         val currentState = _deviceNameStates.value[name] ?: DeviceNameState()
         _deviceNameStates.value += name to currentState.copy(retryCount = currentState.retryCount + 1)
     }
 
-    fun resetRetryCount(name: String) {
+    fun resetRetryCount(name: EndpointName) {
         val currentState = _deviceNameStates.value[name]
         if (currentState != null) {
             _deviceNameStates.value += name to currentState.copy(retryCount = 0)
         }
     }
 
-    fun addPotentialPeer(endpointId: String) {
+    fun addPotentialPeer(endpointId: EndpointId) {
         _potentialPeers.value += endpointId
     }
 
-    fun updateNetworkGraph(newGraph: Map<String, Set<String>>) {
+    // TODO: Is the Set<String> need adjusting?
+    fun updateNetworkGraph(newGraph: Map<EndpointName, Set<EndpointName>>) {
         val currentStates = _deviceNameStates.value.toMutableMap()
         newGraph.forEach { (name, neighbors) ->
             val currentState = currentStates[name] ?: DeviceNameState()
@@ -72,12 +70,12 @@ object DevicesRegistry {
         _deviceNameStates.value = currentStates
     }
 
-    fun updateLocalDeviceInGraph(localDeviceName: String, neighbors: Set<String>) {
+    fun updateLocalDeviceInGraph(localDeviceName: EndpointName, neighbors: Set<EndpointName>) {
         val currentState = _deviceNameStates.value[localDeviceName] ?: DeviceNameState()
         _deviceNameStates.value += localDeviceName to currentState.copy(neighbors = neighbors)
     }
 
-    fun removeDeviceFromGraph(deviceName: String) {
+    fun removeDeviceFromGraph(deviceName: EndpointName) {
         val currentStates = _deviceNameStates.value.toMutableMap()
         currentStates.remove(deviceName)
         currentStates.forEach { (name, state) ->
@@ -88,7 +86,7 @@ object DevicesRegistry {
         _deviceNameStates.value = currentStates
     }
 
-    fun remove(endpointId: String) {
+    fun remove(endpointId: EndpointId) {
         val device = getLatestDeviceState(endpointId)
         if (device != null) {
             _deviceNameStates.value -= device.name
@@ -98,15 +96,16 @@ object DevicesRegistry {
     }
 
     fun updateDeviceStatus(
-        endpointId: String,
+        endpointId: EndpointId,
         externalScope: CoroutineScope,
         newPhase: ConnectionPhase?,
-        newName: String? = null,
+        newName: EndpointName? = null,
     ) {
         // Cancel any pending follow-up action for the existing device
         _devices.value[endpointId]?.followUpAction?.cancel()
 
-        val name = newName ?: _devices.value[endpointId]?.name ?: "Unknown"
+        val name: EndpointName =
+            newName ?: _devices.value[endpointId]?.name ?: EndpointName("Unknown")
 
         if (newPhase != null) {
             _devices.value += (endpointId to DeviceState(
@@ -124,6 +123,6 @@ object DevicesRegistry {
      */
     data class DeviceNameState(
         val retryCount: Int = 0,
-        val neighbors: Set<String> = emptySet(),
+        val neighbors: Set<EndpointName> = emptySet(),
     )
 }

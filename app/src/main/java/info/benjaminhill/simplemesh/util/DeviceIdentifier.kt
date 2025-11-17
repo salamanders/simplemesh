@@ -1,10 +1,11 @@
-package info.benjaminhill.simplemesh.p2p
+package info.benjaminhill.simplemesh.util
 
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import kotlin.random.Random
 
+/** Simple, persistent ID that doesn't violate policy */
 object DeviceIdentifier {
     private const val PREFS_NAME = "SimpleMeshPrefs"
     private const val PREF_UNIQUE_ID = "UUID"

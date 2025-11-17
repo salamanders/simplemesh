@@ -19,9 +19,9 @@ import com.google.android.gms.nearby.connection.PayloadTransferUpdate
 import com.google.android.gms.nearby.connection.Strategy
 import info.benjaminhill.simplemesh.strategy.ConnectionStrategy
 import info.benjaminhill.simplemesh.strategy.GossipManager
-import info.benjaminhill.simplemesh.strategy.GossipPacket
-import info.benjaminhill.simplemesh.strategy.MeshPacket
+import info.benjaminhill.simplemesh.strategy.RoutedMessage
 import info.benjaminhill.simplemesh.strategy.RoutingEngine
+import info.benjaminhill.simplemesh.util.DeviceIdentifier
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -81,7 +81,8 @@ class NearbyConnectionsManager(
     // Handles events like new connection requests, results, and disconnections.
     private val connectionLifecycleCallback = object : ConnectionLifecycleCallback() {
         // another device wants to connect to us
-        override fun onConnectionInitiated(endpointId: String, connectionInfo: ConnectionInfo) {
+        override fun onConnectionInitiated(endpointIdStr: String, connectionInfo: ConnectionInfo) {
+            val endpointId = EndpointId(endpointIdStr)
             Timber.tag("P2P_MESH").d("onConnectionInitiated: endpointId=$endpointId")
 
             val connectedPeers =
@@ -90,7 +91,7 @@ class NearbyConnectionsManager(
                 if (!connectionStrategy.tryDisconnectRedundantPeer(endpointId)) {
                     Timber.tag("P2P_MESH")
                         .i("onConnectionInitiated: Rejecting connection from $endpointId, at capacity and no redundant peers found.")
-                    connectionsClient.rejectConnection(endpointId)
+                    connectionsClient.rejectConnection(endpointId.value)
                     return
                 }
             }
@@ -101,9 +102,10 @@ class NearbyConnectionsManager(
                 externalScope = externalScope,
                 newPhase = ConnectionPhase.CONNECTING
             )
-            connectionsClient.acceptConnection(endpointId, object : PayloadCallback() {
+            connectionsClient.acceptConnection(endpointId.value, object : PayloadCallback() {
                 // Triggered when we get a PING or a PONG.
-                override fun onPayloadReceived(endpointId: String, payload: Payload) {
+                override fun onPayloadReceived(endpointIdStr: String, payload: Payload) {
+                    val endpointId = EndpointId(endpointIdStr)
                     when (payload.type) {
                         Payload.Type.BYTES -> {
                             val data = payload.asBytes()!!
@@ -111,8 +113,14 @@ class NearbyConnectionsManager(
                                 data.contentEquals(PING) -> {
                                     Timber.tag("P2P_MESH")
                                         .d("Received PING from $endpointId")
+                                    // Reset the timeout for this device
+                                    DevicesRegistry.updateDeviceStatus(
+                                        endpointId = endpointId,
+                                        externalScope = externalScope,
+                                        newPhase = ConnectionPhase.CONNECTED
+                                    )
                                     connectionsClient.sendPayload(
-                                        endpointId,
+                                        endpointId.value,
                                         Payload.fromBytes(PONG)
                                     )
                                 }
@@ -124,15 +132,22 @@ class NearbyConnectionsManager(
                                 }
 
                                 else -> {
-                                    val packet = Packet.fromByteArray(data)
-                                    when (packet.type) {
-                                        PacketType.GOSSIP -> {
-                                            val gossipPacket = Cbor.decodeFromByteArray(GossipPacket.serializer(), packet.payload)
-                                            gossipManager?.handlePayload(gossipPacket.data)
+                                    val transportFrame = TransportFrame.fromByteArray(data)
+                                    when (transportFrame.type) {
+                                        TransportFrameType.TOPOLOGY_GOSSIP -> {
+                                            val topologyGossip = Cbor.decodeFromByteArray(
+                                                GossipManager.Companion.TopologyGossip.serializer(),
+                                                transportFrame.payload
+                                            )
+                                            gossipManager?.handlePayload(topologyGossip.data)
                                         }
-                                        PacketType.MESH -> {
-                                            val meshPacket = Cbor.decodeFromByteArray(MeshPacket.serializer(), packet.payload)
-                                            routingEngine?.handlePayload(meshPacket.meshPayload)
+
+                                        TransportFrameType.ROUTED_MESSAGE -> {
+                                            val routedMessage = Cbor.decodeFromByteArray(
+                                                RoutedMessage.serializer(),
+                                                transportFrame.payload
+                                            )
+                                            routingEngine?.handlePayload(routedMessage)
                                         }
                                     }
                                 }
@@ -155,7 +170,8 @@ class NearbyConnectionsManager(
         }
 
         // a connection attempt succeeds or fails.
-        override fun onConnectionResult(endpointId: String, result: ConnectionResolution) {
+        override fun onConnectionResult(endpointIdStr: String, result: ConnectionResolution) {
+            val endpointId = EndpointId(endpointIdStr)
             val newPhase = when (result.status.statusCode) {
                 ConnectionsStatusCodes.STATUS_OK -> ConnectionPhase.CONNECTED
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> ConnectionPhase.REJECTED
@@ -172,7 +188,7 @@ class NearbyConnectionsManager(
                 )
 
                 if (newPhase == ConnectionPhase.CONNECTED) {
-                    val localDeviceName = DeviceIdentifier.get(activity)
+                    val localDeviceName = EndpointName(DeviceIdentifier.get(activity))
                     val connectedNeighbors = DevicesRegistry.devices.value.values
                         .filter { it.phase == ConnectionPhase.CONNECTED }
                         .map { it.name }
@@ -185,7 +201,8 @@ class NearbyConnectionsManager(
             }
         }
 
-        override fun onDisconnected(endpointId: String) {
+        override fun onDisconnected(endpointIdStr: String) {
+            val endpointId = EndpointId(endpointIdStr)
             Timber.tag("P2P_MESH").d("onDisconnected: endpointId=$endpointId")
             val device = DevicesRegistry.getLatestDeviceState(endpointId)
             if (device != null) {
@@ -194,7 +211,7 @@ class NearbyConnectionsManager(
                     externalScope = externalScope,
                     newPhase = ConnectionPhase.DISCONNECTED
                 )
-                val localDeviceName = DeviceIdentifier.get(activity)
+                val localDeviceName = EndpointName(DeviceIdentifier.get(activity))
                 val connectedNeighbors = DevicesRegistry.devices.value.values
                     .filter { it.phase == ConnectionPhase.CONNECTED && it.endpointId != endpointId }
                     .map { it.name }
@@ -230,22 +247,24 @@ class NearbyConnectionsManager(
             object : EndpointDiscoveryCallback() {
                 // a new device is discovered nearby.
                 override fun onEndpointFound(
-                    endpointId: String,
+                    endpointIdStr: String,
                     discoveredEndpointInfo: DiscoveredEndpointInfo
                 ) {
+                    val endpointId = EndpointId(endpointIdStr)
                     Timber.tag("P2P_MESH").d("onEndpointFound: endpointId=$endpointId")
                     DevicesRegistry.updateDeviceStatus(
                         endpointId = endpointId,
                         externalScope = externalScope,
                         newPhase = ConnectionPhase.DISCOVERED,
-                        newName = discoveredEndpointInfo.endpointName,
+                        newName = EndpointName(discoveredEndpointInfo.endpointName),
                     )
                     // Do not immediately connect, just add to the list of potential peers
                     // A separate job will decide who to connect to.
                     DevicesRegistry.addPotentialPeer(endpointId)
                 }
 
-                override fun onEndpointLost(endpointId: String) {
+                override fun onEndpointLost(endpointIdStr: String) {
+                    val endpointId = EndpointId(endpointIdStr)
                     Timber.tag("P2P_MESH").d("onEndpointLost: endpointId=$endpointId")
                     val device = DevicesRegistry.getLatestDeviceState(endpointId)
                     if (device != null) {
@@ -258,6 +277,16 @@ class NearbyConnectionsManager(
         )
     }
 
+    fun stopAdvertising() {
+        Timber.tag("P2P_MESH").d("stopAdvertising")
+        connectionsClient.stopAdvertising()
+    }
+
+    fun stopDiscovery() {
+        Timber.tag("P2P_MESH").d("stopDiscovery")
+        connectionsClient.stopDiscovery()
+    }
+
     fun stopAll() {
         Timber.tag("P2P_MESH").d("stopAll")
         connectionStrategy.stop()
@@ -267,7 +296,7 @@ class NearbyConnectionsManager(
     }
 
     // Resets the connection phase every time, and sends a ping in a few seconds
-    private fun connectedSendPing(endpointId: String, delay: Duration = 15.seconds) {
+    private fun connectedSendPing(endpointId: EndpointId, delay: Duration = 15.seconds) {
         val device = DevicesRegistry.getLatestDeviceState(endpointId)
         if (device != null) {
             DevicesRegistry.resetRetryCount(device.name)
@@ -278,7 +307,7 @@ class NearbyConnectionsManager(
             )
             externalScope.launch {
                 delay(delay)
-                connectionsClient.sendPayload(endpointId, Payload.fromBytes(PING))
+                connectionsClient.sendPayload(endpointId.value, Payload.fromBytes(PING))
             }
         }
     }
@@ -292,11 +321,11 @@ class NearbyConnectionsManager(
         val connectedDevices =
             DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
         connectedDevices.forEach { device ->
-            connectionsClient.sendPayload(device.endpointId, Payload.fromBytes(data))
+            connectionsClient.sendPayload(device.endpointId.value, Payload.fromBytes(data))
         }
     }
 
-    private fun reconnectWithBackoff(name: String) = externalScope.launch {
+    private fun reconnectWithBackoff(name: EndpointName) = externalScope.launch {
         // If we have enough connections, don't force a restart of discovery.
         val connectedCount =
             DevicesRegistry.devices.value.values.count { it.phase == ConnectionPhase.CONNECTED }
@@ -323,8 +352,7 @@ class NearbyConnectionsManager(
 
         DevicesRegistry.incrementRetryCount(name)
 
-        stopAll()
-        startAdvertising()
+        stopDiscovery() // Call the new public method
         startDiscovery()
     }
 }

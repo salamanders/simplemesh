@@ -24,5 +24,5 @@ enum class ConnectionPhase(
     CONNECTED(1.minutes, { ERROR }, Icons.Default.CheckCircle, Color.Green),
     DISCONNECTED(30.seconds, { ERROR }, Icons.Default.Close, Color.Gray),
     REJECTED(30.seconds, { ERROR }, Icons.Default.Close, Color.Red),
-    ERROR(30.seconds, { null }, Icons.Default.Warning, Color.Red)
+    ERROR(30.seconds, { null }, Icons.Default.Warning, Color.Red),
 }

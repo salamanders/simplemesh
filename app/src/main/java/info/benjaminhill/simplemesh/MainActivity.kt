@@ -35,7 +35,6 @@ import info.benjaminhill.simplemesh.p2p.DeviceState
 import info.benjaminhill.simplemesh.p2p.EndpointId
 import info.benjaminhill.simplemesh.p2p.EndpointName
 import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
-import info.benjaminhill.simplemesh.strategy.HealingService
 import info.benjaminhill.simplemesh.ui.theme.SimpleMeshTheme
 import info.benjaminhill.simplemesh.util.DeviceIdentifier
 
@@ -44,10 +43,6 @@ class MainActivity : ComponentActivity() {
     // Handles the low-level device-to-device communication.
     private val nearbyConnectionsManager by lazy {
         NearbyConnectionsManager(this, lifecycleScope)
-    }
-
-    private val healingService by lazy {
-        HealingService(nearbyConnectionsManager, lifecycleScope)
     }
 
     // Holds the state for the UI, surviving screen rotations.
@@ -71,7 +66,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        healingService.start()
     }
 
     override fun onResume() {

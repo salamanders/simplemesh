@@ -11,6 +11,7 @@ import info.benjaminhill.simplemesh.p2p.EndpointId
 import info.benjaminhill.simplemesh.p2p.EndpointName
 import info.benjaminhill.simplemesh.util.DeviceIdentifier
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -18,8 +19,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import kotlin.math.pow
+import kotlin.random.Random
 import kotlin.time.Duration.Companion.minutes
-import kotlin.time.Duration.Companion.seconds
 
 class RingConnectionStrategy(
     private val activity: Activity,
@@ -52,6 +54,7 @@ class RingConnectionStrategy(
         strategyJob?.cancel()
     }
 
+    @OptIn(FlowPreview::class)
     private suspend fun manageDiscovery() {
         stabilityFlow
             .debounce(STABILITY_DURATION_MINUTES.minutes)
@@ -75,7 +78,7 @@ class RingConnectionStrategy(
                 (potentialPeers.map { it.name } + connectedPeers.map { it.name } + myName).distinct()
 
             if (allPeerNames.size < 2) {
-                Timber.tag("P2P_MESH").d("Ring empty, waiting for more peers.")
+                Timber.tag("P2P_MESH").d("allPeerNames.size < 2, waiting for more peers.")
                 stabilityFlow.value = false
                 return@collectLatest
             }
@@ -102,7 +105,8 @@ class RingConnectionStrategy(
             val hasSuccessor = connectedPeers.any { it.name == successor }
             val hasPredecessor = connectedPeers.any { it.name == predecessor }
             val hasOpposite = opposite == null || connectedPeers.any { it.name == opposite }
-            stabilityFlow.value = hasSuccessor && hasPredecessor && hasOpposite && connectedPeers.size >= 2
+            stabilityFlow.value =
+                hasSuccessor && hasPredecessor && hasOpposite && connectedPeers.size >= 2
         }
     }
 
@@ -115,7 +119,8 @@ class RingConnectionStrategy(
         while (isPeerTooClose(myIndex, oppositeIndex, ring.size)) {
             oppositeIndex = (oppositeIndex + 1) % ring.size
             if (oppositeIndex == myIndex) {
-                Timber.tag("P2P_MESH").d("No valid opposite peer found in a ring of size ${ring.size}")
+                Timber.tag("P2P_MESH")
+                    .d("No valid opposite peer found in a ring of size ${ring.size}")
                 return null
             }
         }
@@ -123,21 +128,62 @@ class RingConnectionStrategy(
     }
 
     private fun connectToPeer(peerName: EndpointName) {
-        val isAlreadyConnected = DevicesRegistry.devices.value.values.any { it.name == peerName && it.phase == ConnectionPhase.CONNECTED }
-        val isAlreadyConnecting = DevicesRegistry.devices.value.values.any { it.name == peerName && it.phase == ConnectionPhase.CONNECTING }
+        val isAlreadyConnected =
+            DevicesRegistry.devices.value.values.any { it.name == peerName && it.phase == ConnectionPhase.CONNECTED }
+        val isAlreadyConnecting =
+            DevicesRegistry.devices.value.values.any { it.name == peerName && it.phase == ConnectionPhase.CONNECTING }
 
-        if (!isAlreadyConnected && !isAlreadyConnecting) {
-            val targetDevice = DevicesRegistry.devices.value.values.find { it.name == peerName }
-            if (targetDevice != null) {
-                Timber.tag("P2P_MESH").i("Attempting to connect to peer: ${peerName.value}")
-                connectionsClient.requestConnection(myName.value, targetDevice.endpointId.value, connectionLifecycleCallback)
+        if (isAlreadyConnected || isAlreadyConnecting) {
+            return
+        }
+
+        val targetDevice = DevicesRegistry.devices.value.values.find { it.name == peerName }
+        if (targetDevice != null) {
+            externalScope.launch {
+                val retryCount = DevicesRegistry.getRetryCount(peerName)
+                if (retryCount > 0) {
+                    // Exponential backoff: 2s, 4s, 8s, ... capped at ~1 minute
+                    val backoffMillis = (2.0.pow(retryCount.coerceAtMost(6) - 1) * 2000).toLong()
+                    val jitterMillis = Random.nextLong(0, 2000)
+                    val totalDelay = backoffMillis + jitterMillis
+                    Timber.tag("P2P_MESH")
+                        .i("Backing off connection to ${peerName.value} for ${totalDelay}ms (retry #${retryCount})")
+                    delay(totalDelay)
+                }
+
+                // After delay, re-check if we still need to connect
+                val stillNeedsConnection =
+                    DevicesRegistry.devices.value.values.none {
+                        it.name == peerName && it.phase in listOf(
+                            ConnectionPhase.CONNECTED,
+                            ConnectionPhase.CONNECTING
+                        )
+                    }
+
+                if (stillNeedsConnection) {
+                    val currentTargetDevice =
+                        DevicesRegistry.devices.value.values.find { it.name == peerName }
+                    if (currentTargetDevice != null) {
+                        Timber.tag("P2P_MESH")
+                            .i("Attempting to connect to peer: ${peerName.value}")
+                        connectionsClient.requestConnection(
+                            myName.value,
+                            currentTargetDevice.endpointId.value,
+                            connectionLifecycleCallback
+                        )
+                    }
+                } else {
+                    Timber.tag("P2P_MESH")
+                        .d("Connection to ${peerName.value} no longer needed after backoff.")
+                }
             }
         }
     }
 
     fun onConnectionInitiated(endpointId: EndpointId, connectionInfo: ConnectionInfo) {
         val incomingName = EndpointName(connectionInfo.endpointName)
-        val allPeerNames = (DevicesRegistry.devices.value.values.map { it.name } + myName).distinct()
+        val allPeerNames =
+            (DevicesRegistry.devices.value.values.map { it.name } + myName).distinct()
         val ring: List<EndpointName> = allPeerNames.sortedBy { it.value }
         val myIndex = ring.indexOf(myName)
 
@@ -146,24 +192,37 @@ class RingConnectionStrategy(
 
         // A new peer "cuts in"
         val oldSuccessor = DevicesRegistry.devices.value.values.find {
-            it.phase == ConnectionPhase.CONNECTED && it.name != incomingName && getRingDistance(myIndex, ring.indexOf(it.name), ring.size) == 1
+            it.phase == ConnectionPhase.CONNECTED && it.name != incomingName && getRingDistance(
+                myIndex,
+                ring.indexOf(it.name),
+                ring.size
+            ) == 1
         }
-        if (incomingName != successor && oldSuccessor != null && getRingDistance(myIndex, ring.indexOf(incomingName), ring.size) == 1) {
-            Timber.tag("P2P_MESH").i("New neighbor ${incomingName.value} is cutting in. Disconnecting from old neighbor ${oldSuccessor.name.value}.")
+        if (incomingName != successor && oldSuccessor != null && getRingDistance(
+                myIndex,
+                ring.indexOf(incomingName),
+                ring.size
+            ) == 1
+        ) {
+            Timber.tag("P2P_MESH")
+                .i("New neighbor ${incomingName.value} is cutting in. Disconnecting from old neighbor ${oldSuccessor.name.value}.")
             connectionsClient.disconnectFromEndpoint(oldSuccessor.endpointId.value)
         }
 
         // Accept if it's an immediate neighbor
         if (incomingName == successor || incomingName == predecessor) {
-            Timber.tag("P2P_MESH").i("Accepting connection from immediate neighbor: ${incomingName.value}")
+            Timber.tag("P2P_MESH")
+                .i("Accepting connection from immediate neighbor: ${incomingName.value}")
             connectionsClient.acceptConnection(endpointId.value, payloadCallback)
         } else {
             // Or if we have capacity for a diagonal connection
             if (DevicesRegistry.devices.value.values.count { it.phase == ConnectionPhase.CONNECTED } < MAX_CONNECTIONS) {
-                Timber.tag("P2P_MESH").i("Accepting connection from non-neighbor: ${incomingName.value}")
+                Timber.tag("P2P_MESH")
+                    .i("Accepting connection from non-neighbor: ${incomingName.value}")
                 connectionsClient.acceptConnection(endpointId.value, payloadCallback)
             } else {
-                Timber.tag("P2P_MESH").w("Rejecting connection from ${incomingName.value}, no capacity.")
+                Timber.tag("P2P_MESH")
+                    .w("Rejecting connection from ${incomingName.value}, no capacity.")
                 connectionsClient.rejectConnection(endpointId.value)
             }
         }
@@ -180,14 +239,16 @@ class RingConnectionStrategy(
     }
 
     private fun pruneConnections(desiredPeers: Set<EndpointName?>) {
-        val connectedDevices = DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
+        val connectedDevices =
+            DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
 
         if (connectedDevices.size < MAX_CONNECTIONS) return
 
         val devicesToPrune = connectedDevices.filter { it.name !in desiredPeers }
 
         devicesToPrune.forEach { deviceToDisconnect ->
-            Timber.tag("P2P_MESH").w("Pruning unwanted connection to ${deviceToDisconnect.name.value}.")
+            Timber.tag("P2P_MESH")
+                .w("Pruning unwanted connection to ${deviceToDisconnect.name.value}.")
             connectionsClient.disconnectFromEndpoint(deviceToDisconnect.endpointId.value)
         }
     }

@@ -23,7 +23,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.cbor.Cbor
 import timber.log.Timber
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
@@ -67,7 +66,6 @@ class NearbyConnectionsManager(
     companion object {
         val PING = "PING".toByteArray()
         private val PONG = "PONG".toByteArray()
-        private const val MAX_CONNECTIONS = 4
         private const val MAX_PAYLOAD_SIZE = 32 * 1024 // 32KB
     }
 
@@ -84,24 +82,40 @@ class NearbyConnectionsManager(
         // a connection attempt succeeds or fails.
         override fun onConnectionResult(endpointIdStr: String, result: ConnectionResolution) {
             val endpointId = EndpointId(endpointIdStr)
+            val device = DevicesRegistry.getLatestDeviceState(endpointId)
+
+            if (device == null) {
+                Timber.tag("P2P_MESH").w("onConnectionResult for unknown endpointId: $endpointId")
+                return
+            }
+
             val newPhase = when (result.status.statusCode) {
-                ConnectionsStatusCodes.STATUS_OK -> ConnectionPhase.CONNECTED
-                ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> ConnectionPhase.REJECTED
-                else -> ConnectionPhase.ERROR
+                ConnectionsStatusCodes.STATUS_OK -> {
+                    DevicesRegistry.resetRetryCount(device.name)
+                    ConnectionPhase.CONNECTED
+                }
+
+                ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
+                    DevicesRegistry.incrementRetryCount(device.name)
+                    ConnectionPhase.REJECTED
+                }
+
+                else -> {
+                    DevicesRegistry.incrementRetryCount(device.name)
+                    ConnectionPhase.ERROR
+                }
             }
             Timber.tag("P2P_MESH")
                 .d("onConnectionResult: endpointId=$endpointId, status=$newPhase")
 
-            DevicesRegistry.getLatestDeviceState(endpointId)?.let { _ ->
-                DevicesRegistry.updateDeviceStatus(
-                    endpointId = endpointId,
-                    externalScope = externalScope,
-                    newPhase = newPhase
-                )
-                connectionStrategy.onConnectionResult(newPhase == ConnectionPhase.CONNECTED)
-                if (newPhase == ConnectionPhase.CONNECTED) {
-                    connectedSendPing(endpointId)
-                }
+            DevicesRegistry.updateDeviceStatus(
+                endpointId = endpointId,
+                externalScope = externalScope,
+                newPhase = newPhase
+            )
+            connectionStrategy.onConnectionResult(newPhase == ConnectionPhase.CONNECTED)
+            if (newPhase == ConnectionPhase.CONNECTED) {
+                connectedSendPing(endpointId)
             }
         }
 

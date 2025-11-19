@@ -23,6 +23,7 @@ import kotlin.math.pow
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.minutes
 
+@Suppress("unused")
 class RingConnectionStrategy(
     private val activity: Activity,
     private val connectionsClient: ConnectionsClient,

@@ -42,11 +42,10 @@ class NearbyConnectionsManager(
     private val externalScope: CoroutineScope
 ) {
     private val connectionsClient: ConnectionsClient by lazy { Nearby.getConnectionsClient(activity) }
-    
+
     // Strategy is responsible for deciding WHO to connect to.
     private val connectionStrategy: RandomConnectionStrategy by lazy {
         RandomConnectionStrategy(
-            activity,
             connectionsClient,
             externalScope,
             connectionLifecycleCallback,
@@ -87,20 +86,22 @@ class NearbyConnectionsManager(
                     DevicesRegistry.resetRetryCount(device.name)
                     ConnectionPhase.CONNECTED
                 }
+
                 ConnectionsStatusCodes.STATUS_CONNECTION_REJECTED -> {
                     Timber.tag(TAG).w("Connection rejected by ${device.name} ($endpointId)")
                     DevicesRegistry.incrementRetryCount(device.name)
                     ConnectionPhase.REJECTED
                 }
+
                 else -> {
-                    Timber.tag(TAG).e("Connection error to ${device.name} ($endpointId): ${result.status.statusMessage}")
+                    Timber.tag(TAG)
+                        .e("Connection error to ${device.name} ($endpointId): ${result.status.statusMessage}")
                     DevicesRegistry.incrementRetryCount(device.name)
                     ConnectionPhase.ERROR
                 }
             }
 
             DevicesRegistry.updateDeviceStatus(endpointId, externalScope, newPhase)
-            connectionStrategy.onConnectionResult(newPhase == ConnectionPhase.CONNECTED)
 
             if (newPhase == ConnectionPhase.CONNECTED) {
                 // Start the heartbeat immediately
@@ -111,8 +112,11 @@ class NearbyConnectionsManager(
         override fun onDisconnected(endpointIdStr: String) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).i("Disconnected from $endpointId")
-            DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.DISCONNECTED)
-            connectionStrategy.onDisconnected()
+            DevicesRegistry.updateDeviceStatus(
+                endpointId,
+                externalScope,
+                ConnectionPhase.DISCONNECTED
+            )
         }
     }
 
@@ -126,17 +130,24 @@ class NearbyConnectionsManager(
                 data.contentEquals(PING) -> {
                     Timber.tag(TAG).v("RX PING <- $endpointId")
                     // PING acts as a keep-alive, resetting the timeout
-                    DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTED)
+                    DevicesRegistry.updateDeviceStatus(
+                        endpointId,
+                        externalScope,
+                        ConnectionPhase.CONNECTED
+                    )
                     sendPayload(endpointId, PONG)
                 }
+
                 data.contentEquals(PONG) -> {
                     Timber.tag(TAG).v("RX PONG <- $endpointId")
                     // PONG means the link is alive. Schedule the next PING.
                     connectedSendPing(endpointId, 30.seconds)
                 }
+
                 else -> {
                     // For now, we just flood-broadcast any other data
-                    Timber.tag(TAG).d("RX DATA <- $endpointId (${data.size} bytes). Re-broadcasting.")
+                    Timber.tag(TAG)
+                        .d("RX DATA <- $endpointId (${data.size} bytes). Re-broadcasting.")
                     broadcast(data, exclude = endpointId)
                 }
             }
@@ -151,7 +162,7 @@ class NearbyConnectionsManager(
         override fun onEndpointFound(endpointIdStr: String, info: DiscoveredEndpointInfo) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).d("Found: ${info.endpointName} ($endpointId)")
-            
+
             DevicesRegistry.updateDeviceStatus(
                 endpointId = endpointId,
                 externalScope = externalScope,
@@ -191,6 +202,7 @@ class NearbyConnectionsManager(
         ).addOnFailureListener { e -> Timber.tag(TAG).e(e, "startDiscovery failed") }
     }
 
+    @Suppress("unused")
     fun stopAdvertising() {
         Timber.tag(TAG).d("Stopping Advertising")
         connectionsClient.stopAdvertising()
@@ -214,7 +226,7 @@ class NearbyConnectionsManager(
             Timber.tag(TAG).e("Payload too large (${data.size} > $MAX_PAYLOAD_SIZE). Dropping.")
             return
         }
-        
+
         val targets = DevicesRegistry.devices.value.values
             .filter { it.phase == ConnectionPhase.CONNECTED && it.endpointId != exclude }
             .map { it.endpointId.value }
@@ -230,10 +242,10 @@ class NearbyConnectionsManager(
     private fun connectedSendPing(endpointId: EndpointId, delay: Duration = 15.seconds) {
         // Only send if we are still connected
         val device = DevicesRegistry.getLatestDeviceState(endpointId) ?: return
-        
+
         // Update state to refresh timeout logic
         DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTED)
-        
+
         externalScope.launch {
             delay(delay)
             // Double-check before sending
@@ -242,11 +254,11 @@ class NearbyConnectionsManager(
             }
         }
     }
-    
+
     private fun sendPayload(endpointId: EndpointId, bytes: ByteArray) {
         connectionsClient.sendPayload(endpointId.value, Payload.fromBytes(bytes))
-            .addOnFailureListener { e -> 
-                Timber.tag(TAG).w(e, "Failed to send payload to $endpointId") 
+            .addOnFailureListener { e ->
+                Timber.tag(TAG).w(e, "Failed to send payload to $endpointId")
             }
     }
 }

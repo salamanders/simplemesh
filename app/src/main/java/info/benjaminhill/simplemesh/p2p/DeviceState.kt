@@ -30,7 +30,7 @@ data class DeviceState(
     fun startAutoTimeout(externalScope: CoroutineScope) {
         followUpAction = externalScope.launch {
             delay(phase.timeout)
-            
+
             // Re-check truth: Has the device changed state while we were sleeping?
             val latestState = DevicesRegistry.getLatestDeviceState(endpointId)
             if (latestState?.phase == phase) {
@@ -48,6 +48,6 @@ data class DeviceState(
             }
         }
     }
-    
+
     override fun toString() = "${name.value} ($endpointId): $phase"
 }

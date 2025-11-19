@@ -1,13 +1,8 @@
 package info.benjaminhill.simplemesh.p2p
 
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import timber.log.Timber
 
 /**
@@ -29,23 +24,13 @@ object DevicesRegistry {
     // A map of persistent device name to its state (retries, neighbors).
     private val _deviceNameStates = MutableStateFlow<Map<EndpointName, DeviceNameState>>(emptyMap())
 
-    private val coroutineScope = CoroutineScope(Dispatchers.Default)
-
-    // For topology management. A map of device name to its set of neighbors' names.
-    val networkGraph: StateFlow<Map<EndpointName, Set<EndpointName>>> = _deviceNameStates.map { stateMap ->
-        stateMap.mapValues { (_, state) -> state.neighbors }
-    }.stateIn(
-        scope = coroutineScope,
-        started = SharingStarted.Eagerly,
-        initialValue = emptyMap()
-    )
-
     fun getLatestDeviceState(endpointId: EndpointId): DeviceState? = _devices.value[endpointId]
 
     fun getRetryCount(name: EndpointName): Int = _deviceNameStates.value[name]?.retryCount ?: 0
 
     fun incrementRetryCount(name: EndpointName) {
-        _deviceNameStates.value += name to (_deviceNameStates.value[name] ?: DeviceNameState()).let {
+        _deviceNameStates.value += name to (_deviceNameStates.value[name]
+            ?: DeviceNameState()).let {
             it.copy(retryCount = it.retryCount + 1)
         }
     }
@@ -105,10 +90,6 @@ object DevicesRegistry {
     }
 
     // --- Graph Topology Management ---
-
-    fun updateLocalDeviceInGraph(localDeviceName: EndpointName, neighbors: Set<EndpointName>) {
-        _deviceNameStates.value += localDeviceName to (_deviceNameStates.value[localDeviceName] ?: DeviceNameState()).copy(neighbors = neighbors)
-    }
 
     /**
      * A new data class to hold state keyed by the persistent device name.

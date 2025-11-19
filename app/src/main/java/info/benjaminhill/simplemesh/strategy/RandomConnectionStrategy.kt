@@ -1,6 +1,5 @@
 package info.benjaminhill.simplemesh.strategy
 
-import android.app.Activity
 import com.google.android.gms.nearby.connection.ConnectionInfo
 import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback
 import com.google.android.gms.nearby.connection.ConnectionsClient
@@ -16,6 +15,7 @@ import kotlinx.coroutines.launch
 import timber.log.Timber
 import kotlin.math.pow
 import kotlin.random.Random
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -28,7 +28,6 @@ import kotlin.time.Duration.Companion.seconds
  * 3.  **Simple Backoff:** Preventing hammering of failed nodes with a basic exponential delay.
  */
 class RandomConnectionStrategy(
-    private val activity: Activity,
     private val connectionsClient: ConnectionsClient,
     private val externalScope: CoroutineScope,
     private val connectionLifecycleCallback: ConnectionLifecycleCallback,
@@ -70,7 +69,7 @@ class RandomConnectionStrategy(
     private suspend fun manageConnectionsLoop() {
         while (true) {
             // Jitter prevents all devices from making decisions in lock-step, reducing collision probability.
-            delay(LOOP_INTERVAL.inWholeMilliseconds + Random.nextLong(0, 2000))
+            delay(LOOP_INTERVAL + Random.nextLong(0, 5_000).milliseconds)
 
             val allDevices = DevicesRegistry.devices.value
             val activeConnections = allDevices.values.count {
@@ -128,7 +127,8 @@ class RandomConnectionStrategy(
             // Verify state hasn't changed during delay
             val currentState = DevicesRegistry.getLatestDeviceState(endpointId)?.phase
             if (currentState == ConnectionPhase.DISCOVERED) {
-                Timber.tag("P2P_STRATEGY").i("Requesting connection to ${peerName.value} ($endpointId)")
+                Timber.tag("P2P_STRATEGY")
+                    .i("Requesting connection to ${peerName.value} ($endpointId)")
                 // We use a fixed name "SimpleMesh" for the handshake because the real identity
                 // is established via the persistent DeviceIdentifier, not this ephemeral string.
                 connectionsClient.requestConnection(
@@ -153,22 +153,16 @@ class RandomConnectionStrategy(
         }
 
         if (activeCount < MAX_CONNECTIONS) {
-            Timber.tag("P2P_STRATEGY").i("Accepting incoming connection from ${connectionInfo.endpointName}")
+            Timber.tag("P2P_STRATEGY")
+                .i("Accepting incoming connection from ${connectionInfo.endpointName}")
             connectionsClient.acceptConnection(endpointId.value, payloadCallback)
                 .addOnFailureListener { e ->
                     Timber.tag("P2P_STRATEGY").e(e, "AcceptConnection failed for $endpointId")
                 }
         } else {
-            Timber.tag("P2P_STRATEGY").w("Rejecting ${connectionInfo.endpointName}: Capacity Reached ($activeCount/$MAX_CONNECTIONS)")
+            Timber.tag("P2P_STRATEGY")
+                .w("Rejecting ${connectionInfo.endpointName}: Capacity Reached ($activeCount/$MAX_CONNECTIONS)")
             connectionsClient.rejectConnection(endpointId.value)
         }
-    }
-
-    fun onConnectionResult(isSuccess: Boolean) {
-        // No-op: Registry handles status updates. Strategy loop will naturally react to the new state.
-    }
-
-    fun onDisconnected() {
-        // No-op: Strategy loop picks up the free slot automatically.
     }
 }

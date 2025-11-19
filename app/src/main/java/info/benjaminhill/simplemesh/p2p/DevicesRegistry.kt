@@ -8,51 +8,51 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import timber.log.Timber
 
 /**
  * A centralized, singleton registry for managing the state of all discovered and connected devices.
  *
  * This object serves as the single source of truth for the state of all devices in the network.
  * It maintains a map of `endpointId` to `DeviceState`, which is exposed as a `StateFlow` to the UI.
- * It also manages a separate map for exponential backoff retry counts, which is keyed by the
- * persistent device name.
+ * It also manages a separate map for exponential backoff retry counts, keyed by the persistent device name.
  */
 object DevicesRegistry {
     // Discovered peers that are qualified connection candidates.
     private val _potentialPeers = MutableStateFlow<Set<EndpointId>>(emptySet())
-    val potentialPeers get() = _potentialPeers.asStateFlow()
+    val potentialPeers = _potentialPeers.asStateFlow()
 
     // Devices keyed by ephemeral endpointId.
     private val _devices = MutableStateFlow<Map<EndpointId, DeviceState>>(emptyMap())
-    val devices get() = _devices.asStateFlow()
+    val devices = _devices.asStateFlow()
 
-    // A map of device name to its state.
+    // A map of persistent device name to its state (retries, neighbors).
     private val _deviceNameStates = MutableStateFlow<Map<EndpointName, DeviceNameState>>(emptyMap())
 
     private val coroutineScope = CoroutineScope(Dispatchers.Default)
 
     // For topology management. A map of device name to its set of neighbors' names.
-    val networkGraph: StateFlow<Map<EndpointName, Set<EndpointName>>> = _deviceNameStates.map {
-        it.mapValues { (_, state) -> state.neighbors }
+    val networkGraph: StateFlow<Map<EndpointName, Set<EndpointName>>> = _deviceNameStates.map { stateMap ->
+        stateMap.mapValues { (_, state) -> state.neighbors }
     }.stateIn(
         scope = coroutineScope,
         started = SharingStarted.Eagerly,
         initialValue = emptyMap()
     )
 
-    fun getLatestDeviceState(endpointId: EndpointId): DeviceState? = this.devices.value[endpointId]
+    fun getLatestDeviceState(endpointId: EndpointId): DeviceState? = _devices.value[endpointId]
 
     fun getRetryCount(name: EndpointName): Int = _deviceNameStates.value[name]?.retryCount ?: 0
 
     fun incrementRetryCount(name: EndpointName) {
-        val currentState = _deviceNameStates.value[name] ?: DeviceNameState()
-        _deviceNameStates.value += name to currentState.copy(retryCount = currentState.retryCount + 1)
+        _deviceNameStates.value += name to (_deviceNameStates.value[name] ?: DeviceNameState()).let {
+            it.copy(retryCount = it.retryCount + 1)
+        }
     }
 
     fun resetRetryCount(name: EndpointName) {
-        val currentState = _deviceNameStates.value[name]
-        if (currentState != null) {
-            _deviceNameStates.value += name to currentState.copy(retryCount = 0)
+        if (_deviceNameStates.value.containsKey(name)) {
+            _deviceNameStates.value += name to (_deviceNameStates.value[name]!!.copy(retryCount = 0))
         }
     }
 
@@ -60,62 +60,54 @@ object DevicesRegistry {
         _potentialPeers.value += endpointId
     }
 
-    // TODO: Is the Set<String> need adjusting?
-    fun updateNetworkGraph(newGraph: Map<EndpointName, Set<EndpointName>>) {
-        val currentStates = _deviceNameStates.value.toMutableMap()
-        newGraph.forEach { (name, neighbors) ->
-            val currentState = currentStates[name] ?: DeviceNameState()
-            currentStates[name] = currentState.copy(neighbors = neighbors)
-        }
-        _deviceNameStates.value = currentStates
-    }
-
-    fun updateLocalDeviceInGraph(localDeviceName: EndpointName, neighbors: Set<EndpointName>) {
-        val currentState = _deviceNameStates.value[localDeviceName] ?: DeviceNameState()
-        _deviceNameStates.value += localDeviceName to currentState.copy(neighbors = neighbors)
-    }
-
-    fun removeDeviceFromGraph(deviceName: EndpointName) {
-        val currentStates = _deviceNameStates.value.toMutableMap()
-        currentStates.remove(deviceName)
-        currentStates.forEach { (name, state) ->
-            if (state.neighbors.contains(deviceName)) {
-                currentStates[name] = state.copy(neighbors = state.neighbors - deviceName)
-            }
-        }
-        _deviceNameStates.value = currentStates
-    }
-
-    fun remove(endpointId: EndpointId) {
-        val device = getLatestDeviceState(endpointId)
-        if (device != null) {
-            _deviceNameStates.value -= device.name
-        }
-        _devices.value -= endpointId
-        _potentialPeers.value -= endpointId
-    }
-
+    /**
+     * Updates the device status in the registry.
+     * If `newPhase` is null, the device is removed.
+     * Handles lifecycle management (cancelling old jobs, starting new timeouts).
+     */
     fun updateDeviceStatus(
         endpointId: EndpointId,
         externalScope: CoroutineScope,
         newPhase: ConnectionPhase?,
         newName: EndpointName? = null,
     ) {
-        // Cancel any pending follow-up action for the existing device
-        _devices.value[endpointId]?.followUpAction?.cancel()
+        val currentDevice = _devices.value[endpointId]
+        // Cancel any pending follow-up action (timeout) for the existing device state
+        currentDevice?.followUpAction?.cancel()
 
-        val name: EndpointName =
-            newName ?: _devices.value[endpointId]?.name ?: EndpointName("Unknown")
-
-        if (newPhase != null) {
-            _devices.value += (endpointId to DeviceState(
-                endpointId = endpointId,
-                name = name,
-                phase = newPhase,
-            ).also { it.startAutoTimeout(externalScope) })
-        } else {
+        if (newPhase == null) {
             remove(endpointId)
+            return
         }
+
+        val name = newName ?: currentDevice?.name ?: EndpointName("Unknown")
+        val newState = DeviceState(endpointId, name, newPhase).apply {
+            startAutoTimeout(externalScope)
+        }
+        _devices.value += (endpointId to newState)
+    }
+
+    /**
+     * Removes a device from all registries (devices, potential peers, and ephemeral state).
+     * Logs a warning if the device was not found in the active devices map.
+     */
+    fun remove(endpointId: EndpointId) {
+        val device = _devices.value[endpointId]
+        if (device == null) {
+            Timber.tag("P2P_REGISTRY").w("Attempted to remove unknown device: $endpointId")
+        } else {
+            // We don't remove the persistent name state (retries), only the ephemeral connection state
+            // This allows us to remember backoff counts even if a device disconnects temporarily.
+            Timber.tag("P2P_REGISTRY").d("Removing device: ${device.name} ($endpointId)")
+        }
+        _devices.value -= endpointId
+        _potentialPeers.value -= endpointId
+    }
+
+    // --- Graph Topology Management ---
+
+    fun updateLocalDeviceInGraph(localDeviceName: EndpointName, neighbors: Set<EndpointName>) {
+        _deviceNameStates.value += localDeviceName to (_deviceNameStates.value[localDeviceName] ?: DeviceNameState()).copy(neighbors = neighbors)
     }
 
     /**

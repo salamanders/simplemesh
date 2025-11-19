@@ -11,6 +11,15 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
+/**
+ * Defines the state machine for P2P connections.
+ *
+ * Each phase has:
+ * - [timeout]: How long a device can remain in this phase before it is considered "stuck".
+ * - [phaseOnTimeout]: The next phase to transition to automatically if the timeout expires.
+ *                     Returning `null` causes the device to be removed from the registry.
+ * - UI properties ([icon], [color]) for visualization.
+ */
 enum class ConnectionPhase(
     val timeout: Duration,
     val phaseOnTimeout: () -> ConnectionPhase?,

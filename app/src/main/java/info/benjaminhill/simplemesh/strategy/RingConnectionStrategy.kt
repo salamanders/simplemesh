@@ -60,8 +60,10 @@ class RingConnectionStrategy(
             .debounce(STABILITY_DURATION_MINUTES.minutes)
             .collectLatest { isStable ->
                 if (isStable) {
-                    Timber.tag("P2P_MESH").i("Network is stable, stopping discovery.")
-                    stopDiscovery()
+                    Timber.tag("P2P_MESH")
+                        .i("Network is stable, but keeping discovery active to prevent partitioning.")
+                    // TODO: We may someday want to convert to a Duty Cycle to save battery.
+                    startDiscovery()
                 } else {
                     Timber.tag("P2P_MESH").i("Network is unstable, starting discovery.")
                     startDiscovery()
@@ -190,25 +192,6 @@ class RingConnectionStrategy(
         val successor = ring[(myIndex + 1) % ring.size]
         val predecessor = ring[(myIndex - 1 + ring.size) % ring.size]
 
-        // A new peer "cuts in"
-        val oldSuccessor = DevicesRegistry.devices.value.values.find {
-            it.phase == ConnectionPhase.CONNECTED && it.name != incomingName && getRingDistance(
-                myIndex,
-                ring.indexOf(it.name),
-                ring.size
-            ) == 1
-        }
-        if (incomingName != successor && oldSuccessor != null && getRingDistance(
-                myIndex,
-                ring.indexOf(incomingName),
-                ring.size
-            ) == 1
-        ) {
-            Timber.tag("P2P_MESH")
-                .i("New neighbor ${incomingName.value} is cutting in. Disconnecting from old neighbor ${oldSuccessor.name.value}.")
-            connectionsClient.disconnectFromEndpoint(oldSuccessor.endpointId.value)
-        }
-
         // Accept if it's an immediate neighbor
         if (incomingName == successor || incomingName == predecessor) {
             Timber.tag("P2P_MESH")
@@ -242,14 +225,37 @@ class RingConnectionStrategy(
         val connectedDevices =
             DevicesRegistry.devices.value.values.filter { it.phase == ConnectionPhase.CONNECTED }
 
-        if (connectedDevices.size < MAX_CONNECTIONS) return
+        // Identify connections we explicitly want to keep (Successor, Predecessor, Opposite)
+        val importantConnections = connectedDevices.filter { it.name in desiredPeers }
 
-        val devicesToPrune = connectedDevices.filter { it.name !in desiredPeers }
+        // Identify "Spare Tires" (Random connections or old neighbors)
+        val spareConnections = connectedDevices.filter { it.name !in desiredPeers }
 
-        devicesToPrune.forEach { deviceToDisconnect ->
+        // Check which desired peers are NOT currently connected or connecting.
+        // We need to ensure we have 'slots' available for these specific missing peers.
+        val missingDesiredCount = desiredPeers.filterNotNull().count { name ->
+            DevicesRegistry.devices.value.values.none {
+                it.name == name && (it.phase == ConnectionPhase.CONNECTED || it.phase == ConnectionPhase.CONNECTING)
+            }
+        }
+
+        // We want to keep as many spares as possible, but we MUST reserve space for the missing desired peers
+        // if we are hitting the MAX_CONNECTIONS cap.
+        // Available slots for spares = (Max Capacity) - (Slots taken by Important) - (Slots reserved for Missing Important)
+        val slotsUsedByImportant = importantConnections.size
+        val maxSparesAllowed = MAX_CONNECTIONS - slotsUsedByImportant - missingDesiredCount
+
+        if (spareConnections.size > maxSparesAllowed) {
+            val numToPrune = spareConnections.size - maxSparesAllowed.coerceAtLeast(0)
+            // Prune the extras to make room
+            spareConnections.take(numToPrune).forEach { deviceToDisconnect ->
+                Timber.tag("P2P_MESH")
+                    .i("Pruning spare connection to ${deviceToDisconnect.name.value} to make room for desired peer (Spare limit exceeded).")
+                connectionsClient.disconnectFromEndpoint(deviceToDisconnect.endpointId.value)
+            }
+        } else {
             Timber.tag("P2P_MESH")
-                .w("Pruning unwanted connection to ${deviceToDisconnect.name.value}.")
-            connectionsClient.disconnectFromEndpoint(deviceToDisconnect.endpointId.value)
+                .d("Keeping ${spareConnections.size} spare connections. (Allowed: $maxSparesAllowed)")
         }
     }
 

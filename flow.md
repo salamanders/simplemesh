@@ -101,9 +101,12 @@ stateDiagram-v2
     *   State becomes **ERROR**.
     *   NodeE waits 30 seconds (Timeout).
     *   State becomes **null** (Removed from Registry). `[DeviceState.kt :: startAutoTimeout]`
-6.  **The "Ghost Node" Risk:**
-    *   NodeA is now removed from NodeE's `DevicesRegistry`. `[DevicesRegistry.kt :: remove]`
-    *   **Gap Identified:** Since NodeA is likely still advertising, the underlying Google Nearby stack *knows* about it but has already delivered `onEndpointFound`. NodeE's app layer has forgotten NodeA, but the API layer won't tell us about it again.
+6.  **Ghost Node Recovery:**
+    *   NodeA is removed from NodeE's `DevicesRegistry`. `[DevicesRegistry.kt :: remove]`
+    *   NodeE's `NearbyConnectionsManager` observes the removal via `DevicesRegistry.devices` flow. `[NearbyConnectionsManager.kt :: init]`
+    *   **Action:** NodeE triggers `stopDiscovery()` then `startDiscovery()`.
+    *   **Result:** The underlying API cache is flushed. If NodeA is still visible, `onEndpointFound` fires again.
+    *   NodeE re-discovers NodeA as **DISCOVERED**. Cycle repeats (but with backoff due to retry count).
 
 ---
 
@@ -160,20 +163,38 @@ stateDiagram-v2
     *   NodeA calls `DevicesRegistry.remove(NodeB)`. `[DevicesRegistry.kt :: remove]`
 5.  **Re-Discovery:**
     *   NodeB is removed from internal maps.
-    *   **Gap Identified:** Similar to the Ghost Node, if NodeB comes back with the *same* endpointId (unlikely after crash, but possible with range fluctuation), we might not get a new `onEndpointFound` unless discovery restarts.
+    *   NodeA's manager observes removal. `[NearbyConnectionsManager.kt :: init]`
+    *   **Action:** NodeA restarts Discovery.
+    *   **Result:** If NodeB comes back online or moves back in range, it is re-discovered fresh.
 
 ---
 
-## 6. Gap Analysis (Found Misses)
+## 6. Scenario 5: Atomic Connection Failure
 
-The following logic gaps were identified during the flow analysis:
+**Actors:** NodeA, NodeB.
+**Event:** NodeA tries to connect, but the request fails immediately (e.g., radio busy, internal error).
 
-1.  **The "Ghost Node" Problem (Re-Discovery Failure):**
-    *   **Issue:** When a node transitions to `ERROR` and is subsequently removed from `DevicesRegistry` (Scenario 2, Step 6 and Scenario 4, Step 5), the application layer "forgets" the endpoint. However, the Google Nearby Connections API stack still maintains the endpoint in its cache and will not re-fire `onEndpointFound`.
-    *   **Result:** The node becomes invisible to the application until the discovery process is explicitly restarted (`stopDiscovery` -> `startDiscovery`).
-    *   **Missing Code:** `DevicesRegistry.remove` triggers no action in `NearbyConnectionsManager`. There is no logic to "flush" or restart discovery upon losing a node.
+1.  **Attempt:** NodeA calls `requestConnection`. `[RandomConnectionStrategy.kt :: connectToPeer]`
+2.  **Immediate Failure:** The API call fails before the handshake starts.
+    *   The `addOnFailureListener` block executes.
+3.  **Fail Fast:**
+    *   NodeA immediately updates NodeB state to **ERROR**. `[RandomConnectionStrategy.kt :: connectToPeer]`
+    *   *Previously, this would wait 30s in CONNECTING.*
+4.  **Cleanup:**
+    *   NodeB enters **ERROR** state (30s timeout).
+    *   Timeout expires -> Removed.
+    *   Removal triggers **Restart Discovery** (Scenario 2/4).
 
-2.  **Atomic Connection Failure Handling:**
-    *   **Issue:** In `RandomConnectionStrategy.connectToPeer`, if `connectionsClient.requestConnection` fails immediately (the `addOnFailureListener` block), the device status remains in `CONNECTING` until the 30-second timeout cleans it up.
-    *   **Result:** The slot is "held" for 30 seconds unnecessarily.
-    *   **Missing Code:** The failure listener should probably trigger an immediate transition to `ERROR` or `DISCONNECTED` to free up the slot faster.
+---
+
+## 7. Resolved Gaps (Formerly "Gap Analysis")
+
+The following gaps were identified and have been resolved in the codebase:
+
+1.  **The "Ghost Node" Problem (Resolved):**
+    *   **Issue:** Removal of a device from the registry left the Nearby Connections stack unaware, preventing re-discovery.
+    *   **Fix:** `NearbyConnectionsManager` now observes the `DevicesRegistry` flow. When a device removal is detected, it triggers a `stopDiscovery` / `startDiscovery` cycle to flush the stack's cache and ensure the node is re-discovered if still present.
+
+2.  **Atomic Connection Failure (Resolved):**
+    *   **Issue:** Immediate API failures left the device in `CONNECTING` state until the 30s timeout.
+    *   **Fix:** The `requestConnection` failure listener now explicitly transitions the device to `ERROR` immediately, ensuring the failure is handled promptly and the slot is eventually freed up (after the ERROR grace period).

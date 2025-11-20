@@ -154,11 +154,12 @@ class RandomConnectionStrategy(
                                 .w(e, "RequestConnection failed for $endpointId")
                             // Treat as a connection failure to trigger backoff
                             DevicesRegistry.incrementRetryCount(peerName)
-                            // Since connection failed, we can stop tracking it as pending (it's likely Error or Disconnected now)
-                            // Actually, onConnectionResult is not called if requestConnection fails immediately.
-                            // But we just updated status to CONNECTING. We should probably revert if it fails immediately?
-                            // Or let the timeout handle it. But the timeout is on the DeviceState.
-                            // If failure listener runs, we might want to set it to ERROR.
+                            // Fail fast: Set state to ERROR so the timeout can clean it up, rather than waiting in CONNECTING.
+                            DevicesRegistry.updateDeviceStatus(
+                                endpointId,
+                                externalScope,
+                                ConnectionPhase.ERROR
+                            )
                         }
                 }
             } finally {

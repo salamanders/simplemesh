@@ -3,6 +3,7 @@ package info.benjaminhill.simplemesh.p2p
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import timber.log.Timber
 
 /**
@@ -29,20 +30,24 @@ object DevicesRegistry {
     fun getRetryCount(name: EndpointName): Int = _deviceNameStates.value[name]?.retryCount ?: 0
 
     fun incrementRetryCount(name: EndpointName) {
-        _deviceNameStates.value += name to (_deviceNameStates.value[name]
-            ?: DeviceNameState()).let {
-            it.copy(retryCount = it.retryCount + 1)
+        _deviceNameStates.update { currentMap ->
+            val currentState = currentMap[name] ?: DeviceNameState()
+            currentMap + (name to currentState.copy(retryCount = currentState.retryCount + 1))
         }
     }
 
     fun resetRetryCount(name: EndpointName) {
-        if (_deviceNameStates.value.containsKey(name)) {
-            _deviceNameStates.value += name to (_deviceNameStates.value[name]!!.copy(retryCount = 0))
+        _deviceNameStates.update { currentMap ->
+            if (currentMap.containsKey(name)) {
+                currentMap + (name to currentMap[name]!!.copy(retryCount = 0))
+            } else {
+                currentMap
+            }
         }
     }
 
     fun addPotentialPeer(endpointId: EndpointId) {
-        _potentialPeers.value += endpointId
+        _potentialPeers.update { it + endpointId }
     }
 
     /**
@@ -69,7 +74,7 @@ object DevicesRegistry {
         val newState = DeviceState(endpointId, name, newPhase).apply {
             startAutoTimeout(externalScope)
         }
-        _devices.value += (endpointId to newState)
+        _devices.update { it + (endpointId to newState) }
     }
 
     /**
@@ -85,8 +90,8 @@ object DevicesRegistry {
             // This allows us to remember backoff counts even if a device disconnects temporarily.
             Timber.tag("P2P_REGISTRY").d("Removing device: ${device.name} ($endpointId)")
         }
-        _devices.value -= endpointId
-        _potentialPeers.value -= endpointId
+        _devices.update { it - endpointId }
+        _potentialPeers.update { it - endpointId }
     }
 
     // --- Graph Topology Management ---

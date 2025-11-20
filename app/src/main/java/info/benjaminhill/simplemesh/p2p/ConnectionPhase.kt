@@ -26,7 +26,8 @@ enum class ConnectionPhase(
     val icon: ImageVector,
     val color: Color,
 ) {
-    DISCOVERED(30.seconds, { ERROR }, Icons.Default.Info, Color.Blue),
+    // Discovered devices don't time out; they stay until EndpointLost or we connect.
+    DISCOVERED(Duration.INFINITE, { null }, Icons.Default.Info, Color.Blue),
     CONNECTING(30.seconds, { ERROR }, Icons.Default.Info, Color.Gray),
 
     // Up to the local node to send the ping within the timeout and get the pong back

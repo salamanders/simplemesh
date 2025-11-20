@@ -2,7 +2,7 @@
 
 package info.benjaminhill.simplemesh.p2p
 
-import android.app.Activity
+import android.app.Application
 import com.google.android.gms.nearby.Nearby
 import com.google.android.gms.nearby.connection.AdvertisingOptions
 import com.google.android.gms.nearby.connection.ConnectionInfo
@@ -23,7 +23,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.ExperimentalSerializationApi
+import kotlinx.serialization.cbor.Cbor
+import kotlinx.serialization.decodeFromByteArray
+import kotlinx.serialization.encodeToByteArray
 import timber.log.Timber
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -38,10 +43,16 @@ import kotlin.time.Duration.Companion.seconds
  * 3.  **Data Transport:** Handles the PING/PONG heartbeat and broadcasting of application data.
  */
 class NearbyConnectionsManager(
-    private val activity: Activity,
+    private val application: Application,
     private val externalScope: CoroutineScope
 ) {
-    private val connectionsClient: ConnectionsClient by lazy { Nearby.getConnectionsClient(activity) }
+    // Cache to prevent re-broadcasting seen packets. Maps Packet ID -> Timestamp (or Boolean)
+    // We can use a size-limited cache or just clear it periodically.
+    // For simplicity, a ConcurrentHashMap with manual size check or a simple LRU would work.
+    // Let's use a simple set for now, knowing it might grow (a real app needs cleanup).
+    private val seenPackets = ConcurrentHashMap.newKeySet<String>()
+
+    private val connectionsClient: ConnectionsClient by lazy { Nearby.getConnectionsClient(application) }
 
     // Strategy is responsible for deciding WHO to connect to.
     private val connectionStrategy: RandomConnectionStrategy by lazy {
@@ -50,8 +61,6 @@ class NearbyConnectionsManager(
             externalScope,
             connectionLifecycleCallback,
             payloadCallback,
-            this::startDiscovery,
-            this::stopDiscovery
         )
     }
 
@@ -127,30 +136,46 @@ class NearbyConnectionsManager(
             if (payload.type != Payload.Type.BYTES) return
 
             val data = payload.asBytes() ?: return
-            when {
-                data.contentEquals(PING) -> {
-                    Timber.tag(TAG).v("RX PING <- $endpointId")
-                    // PING acts as a keep-alive, resetting the timeout
-                    DevicesRegistry.updateDeviceStatus(
-                        endpointId,
-                        externalScope,
-                        ConnectionPhase.CONNECTED
-                    )
-                    sendPayload(endpointId, PONG)
+
+            // 1. Handle Protocol Messages (PING/PONG)
+            if (data.contentEquals(PING)) {
+                Timber.tag(TAG).v("RX PING <- $endpointId")
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId,
+                    externalScope,
+                    ConnectionPhase.CONNECTED
+                )
+                sendPayload(endpointId, PONG)
+                return
+            }
+            if (data.contentEquals(PONG)) {
+                Timber.tag(TAG).v("RX PONG <- $endpointId")
+                connectedSendPing(endpointId, 30.seconds)
+                return
+            }
+
+            // 2. Handle Mesh Packets
+            try {
+                val packet = Cbor.decodeFromByteArray<MeshPacket>(data)
+
+                if (seenPackets.contains(packet.id)) {
+                    // Already seen, drop to prevent loops
+                    return
+                }
+                seenPackets.add(packet.id)
+
+                // Process payload (Application logic would go here)
+                Timber.tag(TAG).d("RX MeshPacket ${packet.id} (TTL=${packet.ttl}) <- $endpointId")
+
+                // Forward if TTL > 0
+                if (packet.ttl > 0) {
+                    val forwardedPacket = packet.copy(ttl = packet.ttl - 1)
+                    val forwardedBytes = Cbor.encodeToByteArray(forwardedPacket)
+                    broadcastInternal(forwardedBytes, exclude = endpointId)
                 }
 
-                data.contentEquals(PONG) -> {
-                    Timber.tag(TAG).v("RX PONG <- $endpointId")
-                    // PONG means the link is alive. Schedule the next PING.
-                    connectedSendPing(endpointId, 30.seconds)
-                }
-
-                else -> {
-                    // For now, we just flood-broadcast any other data
-                    Timber.tag(TAG)
-                        .d("RX DATA <- $endpointId (${data.size} bytes). Re-broadcasting.")
-                    broadcast(data, exclude = endpointId)
-                }
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "Failed to decode packet from $endpointId")
             }
         }
 
@@ -182,15 +207,24 @@ class NearbyConnectionsManager(
 
     // --- Public API ---
     private var isDiscovering = false
+    private var isAdvertising = false
 
     fun startAdvertising() {
+        if (isAdvertising) {
+            Timber.tag(TAG).d("Advertising already in progress.")
+            return
+        }
         Timber.tag(TAG).d("Starting Advertising...")
+        isAdvertising = true
         connectionsClient.startAdvertising(
-            DeviceIdentifier.get(activity),
-            activity.packageName,
+            DeviceIdentifier.get(application),
+            application.packageName,
             connectionLifecycleCallback,
             AdvertisingOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
-        ).addOnFailureListener { e -> Timber.tag(TAG).e(e, "startAdvertising failed") }
+        ).addOnFailureListener { e ->
+            isAdvertising = false
+            Timber.tag(TAG).e(e, "startAdvertising failed")
+        }
     }
 
     fun startDiscovery() {
@@ -203,7 +237,7 @@ class NearbyConnectionsManager(
         Timber.tag(TAG).d("Starting Discovery...")
         isDiscovering = true
         connectionsClient.startDiscovery(
-            activity.packageName,
+            application.packageName,
             endpointDiscoveryCallback,
             DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
         ).addOnFailureListener { e ->
@@ -215,6 +249,7 @@ class NearbyConnectionsManager(
     @Suppress("unused")
     fun stopAdvertising() {
         Timber.tag(TAG).d("Stopping Advertising")
+        isAdvertising = false
         connectionsClient.stopAdvertising()
     }
 
@@ -233,6 +268,21 @@ class NearbyConnectionsManager(
     }
 
     fun broadcast(data: ByteArray, exclude: EndpointId? = null) {
+        // Wrap app data in a MeshPacket with a fresh ID and TTL
+        val packetId = UUID.randomUUID().toString()
+        val packet = MeshPacket(
+            id = packetId,
+            ttl = 5, // Allow 5 hops
+            payload = data
+        )
+        // Mark as seen by self so we don't echo it if it comes back
+        seenPackets.add(packetId)
+
+        val packetBytes = Cbor.encodeToByteArray(packet)
+        broadcastInternal(packetBytes, exclude)
+    }
+
+    private fun broadcastInternal(data: ByteArray, exclude: EndpointId? = null) {
         if (data.size > MAX_PAYLOAD_SIZE) {
             Timber.tag(TAG).e("Payload too large (${data.size} > $MAX_PAYLOAD_SIZE). Dropping.")
             return

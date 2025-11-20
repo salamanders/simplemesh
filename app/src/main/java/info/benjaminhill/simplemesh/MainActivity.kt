@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
     // Handles the low-level device-to-device communication.
     private val nearbyConnectionsManager by lazy {
-        NearbyConnectionsManager(this, lifecycleScope)
+        NearbyConnectionsManager(this.application, lifecycleScope)
     }
 
     // Holds the state for the UI, surviving screen rotations.

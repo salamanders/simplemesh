@@ -13,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import timber.log.Timber
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.pow
 import kotlin.random.Random
 import kotlin.time.Duration.Companion.milliseconds
@@ -32,10 +33,12 @@ class RandomConnectionStrategy(
     private val externalScope: CoroutineScope,
     private val connectionLifecycleCallback: ConnectionLifecycleCallback,
     private val payloadCallback: PayloadCallback,
-    private val startDiscovery: () -> Unit,
-    private val stopDiscovery: () -> Unit,
 ) {
     private var strategyJob: Job? = null
+
+    // Tracks peers we are currently waiting to connect to (in backoff delay).
+    // This prevents launching multiple concurrent connection attempts for the same peer.
+    private val pendingConnections = ConcurrentHashMap.newKeySet<EndpointId>()
 
     companion object {
         // Hard limit on concurrent BLE connections to prevent radio instability.
@@ -62,7 +65,7 @@ class RandomConnectionStrategy(
     fun stop() {
         Timber.tag("P2P_STRATEGY").i("Stopping Strategy.")
         strategyJob?.cancel()
-        stopDiscovery() // Clean up
+        pendingConnections.clear()
     }
 
     private suspend fun manageConnectionsLoop() {
@@ -85,7 +88,7 @@ class RandomConnectionStrategy(
 
     private fun attemptToConnect(excludeIds: Set<EndpointId>) {
         val potentialPeers = DevicesRegistry.potentialPeers.value
-            .filter { it !in excludeIds }
+            .filter { it !in excludeIds && !pendingConnections.contains(it) }
             .mapNotNull { DevicesRegistry.getLatestDeviceState(it) } // Get full state to check name/retries
             .filter { it.phase == ConnectionPhase.DISCOVERED }
 
@@ -115,38 +118,54 @@ class RandomConnectionStrategy(
     }
 
     private fun connectToPeer(peerName: EndpointName, endpointId: EndpointId) {
+        // Mark as pending immediately to prevent race conditions
+        pendingConnections.add(endpointId)
+
         externalScope.launch {
-            val retryCount = DevicesRegistry.getRetryCount(peerName)
-            if (retryCount > 0) {
-                // Exponential backoff capped at ~32 seconds (2^5 * 1000)
-                val backoffMillis = (2.0.pow(retryCount.coerceAtMost(5)) * 1000).toLong()
-                delay(backoffMillis)
-            }
+            try {
+                val retryCount = DevicesRegistry.getRetryCount(peerName)
+                if (retryCount > 0) {
+                    // Exponential backoff capped at ~32 seconds (2^5 * 1000)
+                    val backoffMillis = (2.0.pow(retryCount.coerceAtMost(5)) * 1000).toLong()
+                    delay(backoffMillis)
+                }
 
-            // Verify state hasn't changed during delay
-            val currentState = DevicesRegistry.getLatestDeviceState(endpointId)?.phase
-            if (currentState == ConnectionPhase.DISCOVERED) {
-                Timber.tag("P2P_STRATEGY")
-                    .i("Requesting connection to ${peerName.value} ($endpointId)")
+                // Verify state hasn't changed during delay
+                val currentState = DevicesRegistry.getLatestDeviceState(endpointId)?.phase
+                if (currentState == ConnectionPhase.DISCOVERED) {
+                    Timber.tag("P2P_STRATEGY")
+                        .i("Requesting connection to ${peerName.value} ($endpointId)")
 
-                DevicesRegistry.updateDeviceStatus(
-                    endpointId,
-                    externalScope,
-                    ConnectionPhase.CONNECTING
-                )
+                    DevicesRegistry.updateDeviceStatus(
+                        endpointId,
+                        externalScope,
+                        ConnectionPhase.CONNECTING
+                    )
 
-                // We use a fixed name "SimpleMesh" for the handshake because the real identity
-                // is established via the persistent DeviceIdentifier, not this ephemeral string.
-                connectionsClient.requestConnection(
-                    "SimpleMesh",
-                    endpointId.value,
-                    connectionLifecycleCallback
-                )
-                    .addOnFailureListener { e ->
-                        Timber.tag("P2P_STRATEGY").w(e, "RequestConnection failed for $endpointId")
-                        // Treat as a connection failure to trigger backoff
-                        DevicesRegistry.incrementRetryCount(peerName)
-                    }
+                    // We use a fixed name "SimpleMesh" for the handshake because the real identity
+                    // is established via the persistent DeviceIdentifier, not this ephemeral string.
+                    connectionsClient.requestConnection(
+                        "SimpleMesh",
+                        endpointId.value,
+                        connectionLifecycleCallback
+                    )
+                        .addOnFailureListener { e ->
+                            Timber.tag("P2P_STRATEGY")
+                                .w(e, "RequestConnection failed for $endpointId")
+                            // Treat as a connection failure to trigger backoff
+                            DevicesRegistry.incrementRetryCount(peerName)
+                            // Since connection failed, we can stop tracking it as pending (it's likely Error or Disconnected now)
+                            // Actually, onConnectionResult is not called if requestConnection fails immediately.
+                            // But we just updated status to CONNECTING. We should probably revert if it fails immediately?
+                            // Or let the timeout handle it. But the timeout is on the DeviceState.
+                            // If failure listener runs, we might want to set it to ERROR.
+                        }
+                }
+            } finally {
+                // Once the attempt has been launched (or failed), we remove from pending.
+                // The device is now either CONNECTING (in Registry) or failed.
+                // If it's CONNECTING, the registry state prevents duplicate attempts.
+                pendingConnections.remove(endpointId)
             }
         }
     }

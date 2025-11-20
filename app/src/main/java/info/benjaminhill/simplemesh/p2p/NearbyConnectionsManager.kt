@@ -68,6 +68,7 @@ class NearbyConnectionsManager(
         override fun onConnectionInitiated(endpointIdStr: String, connectionInfo: ConnectionInfo) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).d("onConnectionInitiated: $endpointId (${connectionInfo.endpointName})")
+            DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTING)
             connectionStrategy.onConnectionInitiated(endpointId, connectionInfo)
         }
 
@@ -180,6 +181,7 @@ class NearbyConnectionsManager(
     }
 
     // --- Public API ---
+    private var isDiscovering = false
 
     fun startAdvertising() {
         Timber.tag(TAG).d("Starting Advertising...")
@@ -194,12 +196,20 @@ class NearbyConnectionsManager(
     fun startDiscovery() {
         // Ensure strategy is running
         connectionStrategy.start()
+        if (isDiscovering) {
+            Timber.tag(TAG).d("Discovery already in progress.")
+            return
+        }
         Timber.tag(TAG).d("Starting Discovery...")
+        isDiscovering = true
         connectionsClient.startDiscovery(
             activity.packageName,
             endpointDiscoveryCallback,
             DiscoveryOptions.Builder().setStrategy(Strategy.P2P_CLUSTER).build()
-        ).addOnFailureListener { e -> Timber.tag(TAG).e(e, "startDiscovery failed") }
+        ).addOnFailureListener { e ->
+            isDiscovering = false
+            Timber.tag(TAG).e(e, "startDiscovery failed")
+        }
     }
 
     @Suppress("unused")
@@ -210,6 +220,7 @@ class NearbyConnectionsManager(
 
     fun stopDiscovery() {
         Timber.tag(TAG).d("Stopping Discovery")
+        isDiscovering = false
         connectionsClient.stopDiscovery()
     }
 
@@ -218,7 +229,7 @@ class NearbyConnectionsManager(
         connectionStrategy.stop()
         connectionsClient.stopAllEndpoints()
         connectionsClient.stopAdvertising()
-        connectionsClient.stopDiscovery()
+        stopDiscovery()
     }
 
     fun broadcast(data: ByteArray, exclude: EndpointId? = null) {

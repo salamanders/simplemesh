@@ -55,7 +55,6 @@ class RandomConnectionStrategy(
         strategyJob = externalScope.launch {
             Timber.tag("P2P_STRATEGY").i("Starting Random 'Cockroach' Strategy.")
             // Discovery is always-on to ensure we can always see new nodes or islands.
-            startDiscovery()
             launch { manageConnectionsLoop() }
         }
     }
@@ -129,6 +128,13 @@ class RandomConnectionStrategy(
             if (currentState == ConnectionPhase.DISCOVERED) {
                 Timber.tag("P2P_STRATEGY")
                     .i("Requesting connection to ${peerName.value} ($endpointId)")
+
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId,
+                    externalScope,
+                    ConnectionPhase.CONNECTING
+                )
+
                 // We use a fixed name "SimpleMesh" for the handshake because the real identity
                 // is established via the persistent DeviceIdentifier, not this ephemeral string.
                 connectionsClient.requestConnection(

@@ -64,6 +64,22 @@ class NearbyConnectionsManager(
         )
     }
 
+    init {
+        externalScope.launch {
+            var previousDevices = emptySet<EndpointId>()
+            DevicesRegistry.devices.collect { currentDeviceMap ->
+                val currentDevices = currentDeviceMap.keys
+                val removedDevices = previousDevices - currentDevices
+                if (removedDevices.isNotEmpty() && isDiscovering) {
+                    Timber.tag(TAG).d("Device(s) removed: $removedDevices. Restarting discovery to flush cache.")
+                    stopDiscovery()
+                    startDiscovery()
+                }
+                previousDevices = currentDevices
+            }
+        }
+    }
+
     companion object {
         val PING = "PING".toByteArray()
         private val PONG = "PONG".toByteArray()

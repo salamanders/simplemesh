@@ -23,12 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.cbor.Cbor
-import kotlinx.serialization.decodeFromByteArray
-import kotlinx.serialization.encodeToByteArray
 import timber.log.Timber
-import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.seconds
 
@@ -48,7 +43,11 @@ class NearbyConnectionsManager(
 ) {
     private val packetRouter = PacketRouter(externalScope)
 
-    private val connectionsClient: ConnectionsClient by lazy { Nearby.getConnectionsClient(application) }
+    private val connectionsClient: ConnectionsClient by lazy {
+        Nearby.getConnectionsClient(
+            application
+        )
+    }
 
     // Strategy is responsible for deciding WHO to connect to.
     private val connectionStrategy: RandomConnectionStrategy by lazy {
@@ -67,7 +66,8 @@ class NearbyConnectionsManager(
                 val currentDevices = currentDeviceMap.keys
                 val removedDevices = previousDevices - currentDevices
                 if (removedDevices.isNotEmpty() && isDiscovering) {
-                    Timber.tag(TAG).d("Device(s) removed: $removedDevices. Restarting discovery to flush cache.")
+                    Timber.tag(TAG)
+                        .d("Device(s) removed: $removedDevices. Restarting discovery to flush cache.")
                     stopDiscovery()
                     startDiscovery()
                 }
@@ -89,7 +89,11 @@ class NearbyConnectionsManager(
         override fun onConnectionInitiated(endpointIdStr: String, connectionInfo: ConnectionInfo) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).d("onConnectionInitiated: $endpointId (${connectionInfo.endpointName})")
-            DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTING)
+            DevicesRegistry.updateDeviceStatus(
+                endpointId,
+                externalScope,
+                ConnectionPhase.CONNECTING
+            )
             connectionStrategy.onConnectionInitiated(endpointId, connectionInfo)
         }
 
@@ -169,7 +173,8 @@ class NearbyConnectionsManager(
             // 2. Handle Mesh Packets
             when (val result = packetRouter.handleIncoming(data)) {
                 is PacketRouter.RouteResult.Delivered -> {
-                    Timber.tag(TAG).d("RX MeshPacket ${result.packet.id} (TTL=${result.packet.ttl}) <- $endpointId")
+                    Timber.tag(TAG)
+                        .d("RX MeshPacket ${result.packet.id} (TTL=${result.packet.ttl}) <- $endpointId")
                     // Application logic using result.packet.payload would go here
 
                     if (result.forwardBytes != null) {
@@ -296,7 +301,7 @@ class NearbyConnectionsManager(
 
     private fun connectedSendPing(endpointId: EndpointId, delay: Duration = 15.seconds) {
         // Only send if we are still connected
-        val device = DevicesRegistry.getLatestDeviceState(endpointId) ?: return
+        DevicesRegistry.getLatestDeviceState(endpointId) ?: return
 
         // Update state to refresh timeout logic
         DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTED)

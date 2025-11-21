@@ -1,4 +1,5 @@
 # **Comparative Analysis of P2P Overlay Architectures: Android Nearby Connections (P2P\_CLUSTER) vs.
+
 Generic Bluetooth Implementation**
 
 ## **Executive Summary**

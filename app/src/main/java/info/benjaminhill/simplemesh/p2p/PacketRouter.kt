@@ -39,7 +39,7 @@ class PacketRouter(
                 }
 
                 if (oldSize != seenPackets.size) {
-                   Timber.tag(TAG).v("Cleaned up packet cache: $oldSize -> ${seenPackets.size}")
+                    Timber.tag(TAG).v("Cleaned up packet cache: $oldSize -> ${seenPackets.size}")
                 }
             }
         }

@@ -28,13 +28,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.lifecycleScope
 import info.benjaminhill.simplemesh.p2p.ConnectionPhase
-
 import info.benjaminhill.simplemesh.p2p.DeviceState
 import info.benjaminhill.simplemesh.p2p.EndpointId
 import info.benjaminhill.simplemesh.p2p.EndpointName
-import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import info.benjaminhill.simplemesh.ui.theme.SimpleMeshTheme
 import info.benjaminhill.simplemesh.util.DeviceIdentifier
 

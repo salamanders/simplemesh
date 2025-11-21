@@ -9,7 +9,8 @@ startDiscovery failed
 com.google.android.gms.common.api.ApiException: 8002: STATUS_ALREADY_DISCOVERING
 ```
 
-Trace the calls to the message "startDiscovery failed" and see if any duplicates are possible, or if the app needs to keep track of a flag if it is already in discovery model
+Trace the calls to the message "startDiscovery failed" and see if any duplicates are possible, or if
+the app needs to keep track of a flag if it is already in discovery model
 (Better if the API has a "isAlreadyDiscovering" sort of flag)
 
 ## Didn't connect in time
@@ -37,24 +38,38 @@ It appears that it isn't connecting to the found devices within the timeout wind
 
 ## DevicesRegistry Race Condition
 
-**Description:** `DevicesRegistry` uses `_devices.value += ...` to update the state flow. This operation is not atomic: it reads the current map, creates a new one, and sets it.
-**Suspected Result:** If multiple updates occur simultaneously (e.g., a PING arriving at the exact same time as a DISCOVERY event on another thread), one of the updates will be overwritten and lost. This could lead to "stuck" states where the UI or logic thinks a device is in an old phase.
+**Description:** `DevicesRegistry` uses `_devices.value += ...` to update the state flow. This
+operation is not atomic: it reads the current map, creates a new one, and sets it.
+**Suspected Result:** If multiple updates occur simultaneously (e.g., a PING arriving at the exact
+same time as a DISCOVERY event on another thread), one of the updates will be overwritten and lost.
+This could lead to "stuck" states where the UI or logic thinks a device is in an old phase.
 
 ## Recursive Discovery Start Loop
 
 **Description:**
+
 1. `NearbyConnectionsManager.startDiscovery()` calls `connectionStrategy.start()`.
 2. `RandomConnectionStrategy.start()` launches a coroutine and calls its `startDiscovery` lambda.
 3. The lambda calls `NearbyConnectionsManager.startDiscovery()`.
 4. `NearbyConnectionsManager` then calls `connectionsClient.startDiscovery()`.
-**Suspected Result:** While the strategy has an `isActive` check, the `NearbyConnectionsManager` calls `client.startDiscovery` *after* delegating to the strategy. This leads to `client.startDiscovery` being called multiple times (once via the strategy callback, once by the manager directly), contributing to the `STATUS_ALREADY_DISCOVERING` error.
+   **Suspected Result:** While the strategy has an `isActive` check, the `NearbyConnectionsManager`
+   calls `client.startDiscovery` *after* delegating to the strategy. This leads to
+   `client.startDiscovery` being called multiple times (once via the strategy callback, once by the
+   manager directly), contributing to the `STATUS_ALREADY_DISCOVERING` error.
 
 ## Connection Attempt Race Condition
 
-**Description:** `RandomConnectionStrategy.attemptToConnect` selects a peer and launches a coroutine that delays (backoff) before requesting a connection. The peer's state remains `DISCOVERED` during this delay.
-**Suspected Result:** If `attemptToConnect` runs again (e.g., via `manageConnectionsLoop`) before the delay finishes, it may select the *same* peer and launch a second connection attempt. Both attempts will eventually fire, potentially causing protocol errors or confusing the state machine.
+**Description:** `RandomConnectionStrategy.attemptToConnect` selects a peer and launches a coroutine
+that delays (backoff) before requesting a connection. The peer's state remains `DISCOVERED` during
+this delay.
+**Suspected Result:** If `attemptToConnect` runs again (e.g., via `manageConnectionsLoop`) before
+the delay finishes, it may select the *same* peer and launch a second connection attempt. Both
+attempts will eventually fire, potentially causing protocol errors or confusing the state machine.
 
 ## startAdvertising API Misuse
 
-**Description:** Similar to the discovery bug, `startAdvertising()` does not appear to check if advertising is already active before calling the API.
-**Suspected Result:** If `startAdvertising` is called redundantly (e.g., fast resume/pause cycles or via logic bugs), it will likely throw `ApiException: 8001: STATUS_ALREADY_ADVERTISING`, cluttering logs or interfering with legitimate restart attempts.
+**Description:** Similar to the discovery bug, `startAdvertising()` does not appear to check if
+advertising is already active before calling the API.
+**Suspected Result:** If `startAdvertising` is called redundantly (e.g., fast resume/pause cycles or
+via logic bugs), it will likely throw `ApiException: 8001: STATUS_ALREADY_ADVERTISING`, cluttering
+logs or interfering with legitimate restart attempts.

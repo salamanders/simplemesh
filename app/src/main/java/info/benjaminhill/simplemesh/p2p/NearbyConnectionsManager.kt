@@ -135,7 +135,7 @@ class NearbyConnectionsManager(
     }
 
     companion object {
-        const val MAX_CONNECTIONS = 4
+        const val MAX_CONNECTIONS = 3
         val PING = "PING".toByteArray()
         private val PONG = "PONG".toByteArray()
         private const val MAX_PAYLOAD_SIZE = 32 * 1024 // 32KB
@@ -214,6 +214,15 @@ class NearbyConnectionsManager(
     private val payloadCallback = object : PayloadCallback() {
         override fun onPayloadReceived(endpointIdStr: String, payload: Payload) {
             val endpointId = EndpointId(endpointIdStr)
+            // Any data received means the connection is alive. Refresh timeout.
+            externalScope.launch {
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId,
+                    externalScope,
+                    ConnectionPhase.CONNECTED
+                )
+            }
+
             if (payload.type != Payload.Type.BYTES) return
 
             val data = payload.asBytes() ?: return
@@ -221,13 +230,6 @@ class NearbyConnectionsManager(
             // 1. Handle Protocol Messages (PING/PONG)
             if (data.contentEquals(PING)) {
                 Timber.tag(TAG).v("RX PING <- $endpointId")
-                externalScope.launch {
-                    DevicesRegistry.updateDeviceStatus(
-                        endpointId,
-                        externalScope,
-                        ConnectionPhase.CONNECTED
-                    )
-                }
                 sendPayload(endpointId, PONG)
                 return
             }

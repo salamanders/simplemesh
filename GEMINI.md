@@ -77,7 +77,7 @@ There is one PRIMARY DIRECTIVE that is more important than everything else:
 
 This application implements a multi-hop mesh network on top of the Google Nearby Connections API.
 The core challenge is that the API's `Strategy.P2P_CLUSTER` provides only 1-hop primitives and is
-limited to 3-4 simultaneous Bluetooth connections. To overcome this, the application builds a
+limited to 3 simultaneous Bluetooth connections. To overcome this, the application builds a
 sophisticated application-layer protocol to manage a 30+ node network.
 
 ### Key Architectural Components
@@ -99,7 +99,7 @@ sophisticated application-layer protocol to manage a 30+ node network.
 
 This application has been verified to include the following features:
 
-* **Sparse Graph Topology**: The application limits the number of concurrent connections to four per
+* **Sparse Graph Topology**: The application limits the number of concurrent connections to three per
   device to prevent connection floods.
 * **Application-Layer Routing**: Payloads are wrapped in a custom header and routed through the
   network using a flooding mechanism.

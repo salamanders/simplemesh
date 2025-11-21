@@ -1,75 +1,70 @@
-# Bugs
+# Known Bugs & Issues
 
-## startDiscovery failed
+## Critical Issues
 
-logcat shows repeated
+### startDiscovery failed (Status 8002)
+**Symptom:** `logcat` shows `ApiException: 8002: STATUS_ALREADY_DISCOVERING`.
+**Cause:** `startDiscovery` is called when the client is already discovering.
+**Status:** Needs a flag or state check to prevent redundant calls.
 
-```
-startDiscovery failed
-com.google.android.gms.common.api.ApiException: 8002: STATUS_ALREADY_DISCOVERING
-```
+### Activity Lifecycle Leak
+**Symptom:** P2P operations stop when screen rotates.
+**Cause:** `NearbyConnectionsManager` uses `lifecycleScope` which dies on rotation.
+**Status:** High priority fix scheduled (see `GEMINI.md`).
 
-Trace the calls to the message "startDiscovery failed" and see if any duplicates are possible, or if
-the app needs to keep track of a flag if it is already in discovery model
-(Better if the API has a "isAlreadyDiscovering" sort of flag)
+### Packet Cache Memory Leak
+**Symptom:** `seenPackets` set grows indefinitely.
+**Cause:** `ConcurrentHashMap` never clears old packet IDs.
+**Status:** High priority fix scheduled (needs TTL cleanup).
 
-## Didn't connect in time
+### Discovered Endpoints Never Connect (Major Logic Flaw)
+**Symptom:** Devices are discovered but the application never attempts to initiate a connection, resulting in them timing out in the `DISCOVERED` state.
+**Cause:** In `RandomConnectionStrategy.manageConnectionsLoop()`, `attemptToConnect()` is incorrectly called with `allDevices.keys` as `excludeIds`. This causes all known devices, including `DISCOVERED` ones, to be excluded from connection attempts.
+**Status:** High priority fix needed in `RandomConnectionStrategy.kt`.
 
-logcat shows
+### Documentation Inconsistency (Flow Docs vs. Actual Code)
+**Symptom:** The "Example Flows" (and now "Detailed Network State Flow & Lifecycle") sections in `GEMINI.md` describe the intended behavior for node connection and state transitions, but this behavior is not accurately reflected in the current code implementation.
+**Cause:** The documentation is idealized, describing *what should happen*, rather than reflecting the current implementation details. For example, the flow describes a 'Selection' step where `NodeB` is picked, but the `RandomConnectionStrategy` code prevents `DISCOVERED` nodes from being picked due to an incorrect `excludeIds` parameter.
+**Status:** Acknowledged. The documentation serves as a target specification. The code needs to be updated to match the documentation's intent.
 
-```
-2025-09-29 02:32:28.411  7295-7295  P2P_MANAGER             info.benjaminhill.simplemesh         D  Found: device-KNFtJ1 (EndpointId(value=UWOY))
-2025-09-29 02:32:29.166  7295-7295  P2P_MANAGER             info.benjaminhill.simplemesh         D  Found: device-wuEr4t (EndpointId(value=SIE0))
-2025-09-29 02:32:32.538  7295-7368  ProfileInstaller        info.benjaminhill.simplemesh         D  Installing profile for info.benjaminhill.simplemesh
-2025-09-29 02:32:32.834  7295-7295  P2P_MANAGER             info.benjaminhill.simplemesh         D  Found: device-h4MvmC (EndpointId(value=96WX))
-2025-09-29 02:32:54.924  7295-7302  hill.simplemesh         info.benjaminhill.simplemesh         I  Background concurrent copying GC freed 2041KB AllocSpace bytes, 2(104KB) LOS objects, 85% free, 4109KB/28MB, paused 108us,41us total 104.707ms
-2025-09-29 02:32:58.422  7295-7295  P2P_STATE               info.benjaminhill.simplemesh         W  Timeout: device-KNFtJ1 (EndpointId(value=UWOY)) spent >30s in DISCOVERED. Moving to ERROR.
-2025-09-29 02:32:59.170  7295-7295  P2P_STATE               info.benjaminhill.simplemesh         W  Timeout: device-wuEr4t (EndpointId(value=SIE0)) spent >30s in DISCOVERED. Moving to ERROR.
-2025-09-29 02:33:02.839  7295-7295  P2P_STATE               info.benjaminhill.simplemesh         W  Timeout: device-h4MvmC (EndpointId(value=96WX)) spent >30s in DISCOVERED. Moving to ERROR.
-2025-09-29 02:33:28.430  7295-7295  P2P_STATE               info.benjaminhill.simplemesh         W  Timeout: device-KNFtJ1 (EndpointId(value=UWOY)) spent >30s in ERROR. Moving to null.
-2025-09-29 02:33:28.431  7295-7295  P2P_REGISTRY            info.benjaminhill.simplemesh         D  Removing device: EndpointName(value=device-KNFtJ1) (EndpointId(value=UWOY))
-2025-09-29 02:33:29.174  7295-7295  P2P_STATE               info.benjaminhill.simplemesh         W  Timeout: device-wuEr4t (EndpointId(value=SIE0)) spent >30s in ERROR. Moving to null.
-2025-09-29 02:33:29.174  7295-7295  P2P_REGISTRY            info.benjaminhill.simplemesh         D  Removing device: EndpointName(value=device-wuEr4t) (EndpointId(value=SIE0))
-2025-09-29 02:33:32.843  7295-7295  P2P_STATE               info.benjaminhill.simplemesh         W  Timeout: device-h4MvmC (EndpointId(value=96WX)) spent >30s in ERROR. Moving to null.
-2025-09-29 02:33:32.844  7295-7295  P2P_REGISTRY            info.benjaminhill.simplemesh         D  Removing device: EndpointName(value=device-h4MvmC) (EndpointId(value=96WX))
-```
+## General Bugs
 
-It appears that it isn't connecting to the found devices within the timeout window.
+### Didn't connect in time
+**Symptom:** Devices are found but time out in `DISCOVERED` state without connecting.
+**Logs:** `Timeout: ... spent >30s in DISCOVERED. Moving to ERROR.`
 
-## DevicesRegistry Race Condition
+### DevicesRegistry Race Condition
+**Description:** `DevicesRegistry` updates are not atomic, potentially overwriting simultaneous state changes (e.g., Discovery + PING).
 
-**Description:** `DevicesRegistry` uses `_devices.value += ...` to update the state flow. This
-operation is not atomic: it reads the current map, creates a new one, and sets it.
-**Suspected Result:** If multiple updates occur simultaneously (e.g., a PING arriving at the exact
-same time as a DISCOVERY event on another thread), one of the updates will be overwritten and lost.
-This could lead to "stuck" states where the UI or logic thinks a device is in an old phase.
+### Recursive Discovery Start Loop
+**Description:** `NearbyConnectionsManager` calls `strategy.start()`, which calls back to `NearbyConnectionsManager.startDiscovery()`, causing potential loops and race conditions.
 
-## Recursive Discovery Start Loop
+### Connection Attempt Race Condition
+**Description:** `RandomConnectionStrategy` may attempt to connect to the same peer twice if the first attempt is delayed.
 
-**Description:**
+---
 
-1. `NearbyConnectionsManager.startDiscovery()` calls `connectionStrategy.start()`.
-2. `RandomConnectionStrategy.start()` launches a coroutine and calls its `startDiscovery` lambda.
-3. The lambda calls `NearbyConnectionsManager.startDiscovery()`.
-4. `NearbyConnectionsManager` then calls `connectionsClient.startDiscovery()`.
-   **Suspected Result:** While the strategy has an `isActive` check, the `NearbyConnectionsManager`
-   calls `client.startDiscovery` *after* delegating to the strategy. This leads to
-   `client.startDiscovery` being called multiple times (once via the strategy callback, once by the
-   manager directly), contributing to the `STATUS_ALREADY_DISCOVERING` error.
+# Bug Report Template
 
-## Connection Attempt Race Condition
+**Description**
+A clear and concise description of what the bug is.
 
-**Description:** `RandomConnectionStrategy.attemptToConnect` selects a peer and launches a coroutine
-that delays (backoff) before requesting a connection. The peer's state remains `DISCOVERED` during
-this delay.
-**Suspected Result:** If `attemptToConnect` runs again (e.g., via `manageConnectionsLoop`) before
-the delay finishes, it may select the *same* peer and launch a second connection attempt. Both
-attempts will eventually fire, potentially causing protocol errors or confusing the state machine.
+**To Reproduce**
+Steps to reproduce the behavior:
+1. Go to '...'
+2. Click on '...'
+3. Scroll down to '...'
+4. See error
 
-## startAdvertising API Misuse
+**Expected behavior**
+A clear and concise description of what you expected to happen.
 
-**Description:** Similar to the discovery bug, `startAdvertising()` does not appear to check if
-advertising is already active before calling the API.
-**Suspected Result:** If `startAdvertising` is called redundantly (e.g., fast resume/pause cycles or
-via logic bugs), it will likely throw `ApiException: 8001: STATUS_ALREADY_ADVERTISING`, cluttering
-logs or interfering with legitimate restart attempts.
+**Logs**
+Paste relevant logcat output here. Use `deploy_all.sh` to capture logs from multiple devices if possible.
+
+**Screenshots**
+If applicable, add screenshots to help explain your problem.
+
+**Environment**
+ - Device: [e.g. Pixel 6]
+ - OS: [e.g. Android 13]

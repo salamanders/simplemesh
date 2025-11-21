@@ -46,11 +46,7 @@ class NearbyConnectionsManager(
     private val application: Application,
     private val externalScope: CoroutineScope
 ) {
-    // Cache to prevent re-broadcasting seen packets. Maps Packet ID -> Timestamp (or Boolean)
-    // We can use a size-limited cache or just clear it periodically.
-    // For simplicity, a ConcurrentHashMap with manual size check or a simple LRU would work.
-    // Let's use a simple set for now, knowing it might grow (a real app needs cleanup).
-    private val seenPackets = ConcurrentHashMap.newKeySet<String>()
+    private val packetRouter = PacketRouter(externalScope)
 
     private val connectionsClient: ConnectionsClient by lazy { Nearby.getConnectionsClient(application) }
 
@@ -171,27 +167,19 @@ class NearbyConnectionsManager(
             }
 
             // 2. Handle Mesh Packets
-            try {
-                val packet = Cbor.decodeFromByteArray<MeshPacket>(data)
+            when (val result = packetRouter.handleIncoming(data)) {
+                is PacketRouter.RouteResult.Delivered -> {
+                    Timber.tag(TAG).d("RX MeshPacket ${result.packet.id} (TTL=${result.packet.ttl}) <- $endpointId")
+                    // Application logic using result.packet.payload would go here
 
-                if (seenPackets.contains(packet.id)) {
-                    // Already seen, drop to prevent loops
-                    return
-                }
-                seenPackets.add(packet.id)
-
-                // Process payload (Application logic would go here)
-                Timber.tag(TAG).d("RX MeshPacket ${packet.id} (TTL=${packet.ttl}) <- $endpointId")
-
-                // Forward if TTL > 0
-                if (packet.ttl > 0) {
-                    val forwardedPacket = packet.copy(ttl = packet.ttl - 1)
-                    val forwardedBytes = Cbor.encodeToByteArray(forwardedPacket)
-                    broadcastInternal(forwardedBytes, exclude = endpointId)
+                    if (result.forwardBytes != null) {
+                        broadcastInternal(result.forwardBytes, exclude = endpointId)
+                    }
                 }
 
-            } catch (e: Exception) {
-                Timber.tag(TAG).w(e, "Failed to decode packet from $endpointId")
+                PacketRouter.RouteResult.Drop -> {
+                    // Duplicate or invalid, ignore
+                }
             }
         }
 
@@ -284,17 +272,7 @@ class NearbyConnectionsManager(
     }
 
     fun broadcast(data: ByteArray, exclude: EndpointId? = null) {
-        // Wrap app data in a MeshPacket with a fresh ID and TTL
-        val packetId = UUID.randomUUID().toString()
-        val packet = MeshPacket(
-            id = packetId,
-            ttl = 5, // Allow 5 hops
-            payload = data
-        )
-        // Mark as seen by self so we don't echo it if it comes back
-        seenPackets.add(packetId)
-
-        val packetBytes = Cbor.encodeToByteArray(packet)
+        val packetBytes = packetRouter.createBroadcast(data)
         broadcastInternal(packetBytes, exclude)
     }
 

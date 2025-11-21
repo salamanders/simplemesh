@@ -35,18 +35,6 @@ logcat shows
 
 It appears that it isn't connecting to the found devices within the timeout window.
 
-## Activity Leak & Stale Context
-
-**Description:** `NearbyConnectionsManager` retains a reference to the `Activity` passed to its constructor. This manager is held by `MainViewModel`, which outlives the `Activity` during configuration changes (e.g., screen rotation).
-**Suspected Result:**
-1.  **Memory Leak:** The original `Activity` is never garbage collected.
-2.  **Crash/Misbehavior:** If the manager attempts to use the `Activity` context (e.g., for permissions or dialogs) after it has been destroyed, it may crash or fail silently. The `ConnectionsClient` might also become detached from the valid lifecycle.
-
-## Broadcast Flood (No Loop Prevention)
-
-**Description:** The `broadcast` method in `NearbyConnectionsManager` sends data to all connected peers except the sender. It does not include a unique message ID (UUID) or a Time-To-Live (TTL) counter in the payload.
-**Suspected Result:** A network with a cycle (A -> B -> C -> A) will cause an infinite feedback loop of re-broadcasting the same packet, instantly flooding the network bandwidth and likely crashing the radio stack.
-
 ## DevicesRegistry Race Condition
 
 **Description:** `DevicesRegistry` uses `_devices.value += ...` to update the state flow. This operation is not atomic: it reads the current map, creates a new one, and sets it.

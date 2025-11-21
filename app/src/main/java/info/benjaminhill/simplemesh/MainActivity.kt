@@ -40,15 +40,13 @@ import info.benjaminhill.simplemesh.util.DeviceIdentifier
 
 class MainActivity : ComponentActivity() {
 
-    // Handles the low-level device-to-device communication.
-    private val nearbyConnectionsManager by lazy {
-        NearbyConnectionsManager(this.application, lifecycleScope)
-    }
-
     // Holds the state for the UI, surviving screen rotations.
     private val viewModel: MainViewModel by viewModels {
         // This factory is needed to pass the connections manager to the ViewModel's constructor.
-        MainViewModelFactory(nearbyConnectionsManager, EndpointName(DeviceIdentifier.get(this)))
+        MainViewModelFactory(
+            (application as SimpleMeshApplication).nearbyConnectionsManager,
+            EndpointName(DeviceIdentifier.get(this))
+        )
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

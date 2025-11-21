@@ -1,5 +1,6 @@
 package info.benjaminhill.simplemesh.p2p
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.cbor.Cbor
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
@@ -10,6 +11,7 @@ import java.util.UUID
 
 class MeshPacketTest {
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `serialization and deserialization is correct`() {
         val id = UUID.randomUUID().toString()

@@ -3,11 +3,13 @@ package info.benjaminhill.simplemesh.strategy
 import com.google.android.gms.nearby.connection.ConnectionInfo
 import com.google.android.gms.nearby.connection.ConnectionLifecycleCallback
 import com.google.android.gms.nearby.connection.ConnectionsClient
+import com.google.android.gms.nearby.connection.ConnectionsStatusCodes
 import com.google.android.gms.nearby.connection.PayloadCallback
 import info.benjaminhill.simplemesh.p2p.ConnectionPhase
 import info.benjaminhill.simplemesh.p2p.DevicesRegistry
 import info.benjaminhill.simplemesh.p2p.EndpointId
 import info.benjaminhill.simplemesh.p2p.EndpointName
+import info.benjaminhill.simplemesh.p2p.NearbyConnectionsManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -23,7 +25,7 @@ import kotlin.time.Duration.Companion.seconds
  * "Cockroach" Strategy: Resilience through randomness and simplicity.
  *
  * This strategy ignores topology and focuses on:
- * 1.  **Filling Slots:** Opportunistically connecting to any available peer up to `MAX_CONNECTIONS`.
+ * 1.  **Filling Slots:** Opportunistically connecting to any available peer up to `NearbyConnectionsManager.MAX_CONNECTIONS`.
  * 2.  **Constant Mixing:** Randomly dropping connections (`Island Breaker`) to ensure the network topology
  *     continually churns, preventing permanent partitions (islands) without complex routing tables.
  * 3.  **Simple Backoff:** Preventing hammering of failed nodes with a basic exponential delay.
@@ -41,9 +43,6 @@ class RandomConnectionStrategy(
     private val pendingConnections = ConcurrentHashMap.newKeySet<EndpointId>()
 
     companion object {
-        // Hard limit on concurrent BLE connections to prevent radio instability.
-        private const val MAX_CONNECTIONS = 4
-
         // Main loop frequency. Fast enough to react, slow enough to save some battery.
         private val LOOP_INTERVAL = 5.seconds
 
@@ -74,17 +73,22 @@ class RandomConnectionStrategy(
             delay(LOOP_INTERVAL + Random.nextLong(0, 5_000).milliseconds)
 
             val allDevices = DevicesRegistry.devices.value
-            val activeConnections = allDevices.values.count {
+            val busyPeers = allDevices.values.filter {
                 it.phase == ConnectionPhase.CONNECTED || it.phase == ConnectionPhase.CONNECTING
             }
 
-            if (activeConnections < MAX_CONNECTIONS) {
-                attemptToConnect(allDevices.keys)
+            if (busyPeers.size < NearbyConnectionsManager.MAX_CONNECTIONS) {
+                // FIX: Only exclude devices that are already connected or connecting.
+                // Previously, we excluded allDevices.keys, which included DISCOVERED devices.
+                // This resulted in discovered devices never being connected to.
+                attemptToConnect(busyPeers.map { it.endpointId }.toSet())
             } else {
-                considerIslandBreaking(allDevices.values.filter { it.phase == ConnectionPhase.CONNECTED })
+                considerIslandBreaking(busyPeers.filter { it.phase == ConnectionPhase.CONNECTED })
             }
         }
     }
+
+    private var lastNoCandidatesLogTime = 0L
 
     private fun attemptToConnect(excludeIds: Set<EndpointId>) {
         val potentialPeers = DevicesRegistry.potentialPeers.value
@@ -102,6 +106,14 @@ class RandomConnectionStrategy(
 
         if (candidate != null) {
             connectToPeer(candidate.name, candidate.endpointId)
+        } else {
+            // Log starvation occasionally (every 30s) to prove the strategy is alive but found nothing.
+            val now = System.currentTimeMillis()
+            if (now - lastNoCandidatesLogTime > 30_000) {
+                Timber.tag("P2P_STRATEGY")
+                    .d("No suitable candidates found. (Pool: ${potentialPeers.size}, Excluded: ${excludeIds.size})")
+                lastNoCandidatesLogTime = now
+            }
         }
     }
 
@@ -136,11 +148,13 @@ class RandomConnectionStrategy(
                     Timber.tag("P2P_STRATEGY")
                         .i("Requesting connection to ${peerName.value} ($endpointId)")
 
-                    DevicesRegistry.updateDeviceStatus(
-                        endpointId,
-                        externalScope,
-                        ConnectionPhase.CONNECTING
-                    )
+                    externalScope.launch {
+                        DevicesRegistry.updateDeviceStatus(
+                            endpointId,
+                            externalScope,
+                            ConnectionPhase.CONNECTING
+                        )
+                    }
 
                     // We use a fixed name "SimpleMesh" for the handshake because the real identity
                     // is established via the persistent DeviceIdentifier, not this ephemeral string.
@@ -150,16 +164,31 @@ class RandomConnectionStrategy(
                         connectionLifecycleCallback
                     )
                         .addOnFailureListener { e ->
+                            if ((e as? com.google.android.gms.common.api.ApiException)?.statusCode == ConnectionsStatusCodes.STATUS_ALREADY_CONNECTED_TO_ENDPOINT) {
+                                Timber.tag("P2P_STRATEGY")
+                                    .w("Already connected to $endpointId. Recovering state.")
+                                externalScope.launch {
+                                    DevicesRegistry.updateDeviceStatus(
+                                        endpointId,
+                                        externalScope,
+                                        ConnectionPhase.CONNECTED
+                                    )
+                                }
+                                return@addOnFailureListener
+                            }
+
                             Timber.tag("P2P_STRATEGY")
                                 .w(e, "RequestConnection failed for $endpointId")
                             // Treat as a connection failure to trigger backoff
                             DevicesRegistry.incrementRetryCount(peerName)
                             // Fail fast: Set state to ERROR so the timeout can clean it up, rather than waiting in CONNECTING.
-                            DevicesRegistry.updateDeviceStatus(
-                                endpointId,
-                                externalScope,
-                                ConnectionPhase.ERROR
-                            )
+                            externalScope.launch {
+                                DevicesRegistry.updateDeviceStatus(
+                                    endpointId,
+                                    externalScope,
+                                    ConnectionPhase.ERROR
+                                )
+                            }
                         }
                 }
             } finally {
@@ -178,7 +207,7 @@ class RandomConnectionStrategy(
             it.phase == ConnectionPhase.CONNECTED || it.phase == ConnectionPhase.CONNECTING
         }
 
-        if (activeCount < MAX_CONNECTIONS) {
+        if (activeCount < NearbyConnectionsManager.MAX_CONNECTIONS) {
             Timber.tag("P2P_STRATEGY")
                 .i("Accepting incoming connection from ${connectionInfo.endpointName}")
             connectionsClient.acceptConnection(endpointId.value, payloadCallback)
@@ -187,7 +216,7 @@ class RandomConnectionStrategy(
                 }
         } else {
             Timber.tag("P2P_STRATEGY")
-                .w("Rejecting ${connectionInfo.endpointName}: Capacity Reached ($activeCount/$MAX_CONNECTIONS)")
+                .w("Rejecting ${connectionInfo.endpointName}: Capacity Reached ($activeCount/$NearbyConnectionsManager.MAX_CONNECTIONS)")
             connectionsClient.rejectConnection(endpointId.value)
         }
     }

@@ -65,18 +65,77 @@ class NearbyConnectionsManager(
             DevicesRegistry.devices.collect { currentDeviceMap ->
                 val currentDevices = currentDeviceMap.keys
                 val removedDevices = previousDevices - currentDevices
-                if (removedDevices.isNotEmpty() && isDiscovering) {
+
+                removedDevices.forEach { removedId ->
+
                     Timber.tag(TAG)
-                        .d("Device(s) removed: $removedDevices. Restarting discovery to flush cache.")
-                    stopDiscovery()
-                    startDiscovery()
+                        .d("Device removed from registry. Ensuring disconnect: $removedId")
+
+                    connectionsClient.disconnectFromEndpoint(removedId.value)
+
                 }
+
+
+
+                if (removedDevices.isNotEmpty() && isDiscovering) {
+
+                    Timber.tag(TAG)
+
+                        .d("Device(s) removed: $removedDevices. Restarting discovery to flush cache.")
+
+                    stopDiscovery()
+
+                    startDiscovery()
+
+                }
+
+
+                // Dynamic Discovery: Save radio resources by stopping scan when full.
+
+                val activeCount = currentDeviceMap.values.count {
+
+                    it.phase == ConnectionPhase.CONNECTED || it.phase == ConnectionPhase.CONNECTING
+
+                }
+
+
+
+                if (activeCount >= MAX_CONNECTIONS) {
+
+                    if (isDiscovering) {
+
+                        Timber.tag(TAG)
+                            .d("Max connections reached ($activeCount/$MAX_CONNECTIONS). Pausing discovery.")
+
+                        stopDiscovery()
+
+                    }
+
+                } else {
+
+                    if (!isDiscovering) {
+
+                        Timber.tag(TAG)
+                            .d("Slots available ($activeCount/$MAX_CONNECTIONS). Resuming discovery.")
+
+                        startDiscovery()
+
+                    }
+
+                }
+
+
+
                 previousDevices = currentDevices
+
             }
+
         }
+
     }
 
     companion object {
+        const val MAX_CONNECTIONS = 4
         val PING = "PING".toByteArray()
         private val PONG = "PONG".toByteArray()
         private const val MAX_PAYLOAD_SIZE = 32 * 1024 // 32KB
@@ -89,11 +148,13 @@ class NearbyConnectionsManager(
         override fun onConnectionInitiated(endpointIdStr: String, connectionInfo: ConnectionInfo) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).d("onConnectionInitiated: $endpointId (${connectionInfo.endpointName})")
-            DevicesRegistry.updateDeviceStatus(
-                endpointId,
-                externalScope,
-                ConnectionPhase.CONNECTING
-            )
+            externalScope.launch {
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId,
+                    externalScope,
+                    ConnectionPhase.CONNECTING
+                )
+            }
             connectionStrategy.onConnectionInitiated(endpointId, connectionInfo)
         }
 
@@ -127,7 +188,9 @@ class NearbyConnectionsManager(
                 }
             }
 
-            DevicesRegistry.updateDeviceStatus(endpointId, externalScope, newPhase)
+            externalScope.launch {
+                DevicesRegistry.updateDeviceStatus(endpointId, externalScope, newPhase)
+            }
 
             if (newPhase == ConnectionPhase.CONNECTED) {
                 // Start the heartbeat immediately
@@ -138,11 +201,13 @@ class NearbyConnectionsManager(
         override fun onDisconnected(endpointIdStr: String) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).i("Disconnected from $endpointId")
-            DevicesRegistry.updateDeviceStatus(
-                endpointId,
-                externalScope,
-                ConnectionPhase.DISCONNECTED
-            )
+            externalScope.launch {
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId,
+                    externalScope,
+                    ConnectionPhase.DISCONNECTED
+                )
+            }
         }
     }
 
@@ -156,11 +221,13 @@ class NearbyConnectionsManager(
             // 1. Handle Protocol Messages (PING/PONG)
             if (data.contentEquals(PING)) {
                 Timber.tag(TAG).v("RX PING <- $endpointId")
-                DevicesRegistry.updateDeviceStatus(
-                    endpointId,
-                    externalScope,
-                    ConnectionPhase.CONNECTED
-                )
+                externalScope.launch {
+                    DevicesRegistry.updateDeviceStatus(
+                        endpointId,
+                        externalScope,
+                        ConnectionPhase.CONNECTED
+                    )
+                }
                 sendPayload(endpointId, PONG)
                 return
             }
@@ -182,8 +249,12 @@ class NearbyConnectionsManager(
                     }
                 }
 
-                PacketRouter.RouteResult.Drop -> {
-                    // Duplicate or invalid, ignore
+                PacketRouter.RouteResult.Duplicate -> {
+                    Timber.tag(TAG).v("Dropped duplicate packet from $endpointId")
+                }
+
+                is PacketRouter.RouteResult.Malformed -> {
+                    Timber.tag(TAG).w(result.error, "Dropped malformed packet from $endpointId")
                 }
             }
         }
@@ -198,19 +269,23 @@ class NearbyConnectionsManager(
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).d("Found: ${info.endpointName} ($endpointId)")
 
-            DevicesRegistry.updateDeviceStatus(
-                endpointId = endpointId,
-                externalScope = externalScope,
-                newPhase = ConnectionPhase.DISCOVERED,
-                newName = EndpointName(info.endpointName)
-            )
-            DevicesRegistry.addPotentialPeer(endpointId)
+            externalScope.launch {
+                DevicesRegistry.updateDeviceStatus(
+                    endpointId = endpointId,
+                    externalScope = externalScope,
+                    newPhase = ConnectionPhase.DISCOVERED,
+                    newName = EndpointName(info.endpointName)
+                )
+                DevicesRegistry.addPotentialPeer(endpointId)
+            }
         }
 
         override fun onEndpointLost(endpointIdStr: String) {
             val endpointId = EndpointId(endpointIdStr)
             Timber.tag(TAG).d("Lost: $endpointId")
-            DevicesRegistry.remove(endpointId)
+            externalScope.launch {
+                DevicesRegistry.remove(endpointId)
+            }
         }
     }
 
@@ -300,13 +375,13 @@ class NearbyConnectionsManager(
     // --- Helpers ---
 
     private fun connectedSendPing(endpointId: EndpointId, delay: Duration = 15.seconds) {
-        // Only send if we are still connected
-        DevicesRegistry.getLatestDeviceState(endpointId) ?: return
-
-        // Update state to refresh timeout logic
-        DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTED)
-
         externalScope.launch {
+            // Only send if we are still connected
+            DevicesRegistry.getLatestDeviceState(endpointId) ?: return@launch
+
+            // Update state to refresh timeout logic
+            DevicesRegistry.updateDeviceStatus(endpointId, externalScope, ConnectionPhase.CONNECTED)
+
             delay(delay)
             // Double-check before sending
             if (DevicesRegistry.getLatestDeviceState(endpointId)?.phase == ConnectionPhase.CONNECTED) {

@@ -5,15 +5,19 @@
 This is an Android application named "SimpleMesh" that tests device-to-device communication using
 Google Play Services Nearby Connections API.
 
-## PRIMARY DIRECTIVE: NO ACTION WITHOUT EVIDENCE
+## PRIMARY DIRECTIVE: NO ACTION WITHOUT EVIDENCE AND APPROVAL.
 
 There is one PRIMARY DIRECTIVE that is more important than everything else:
-**GATHER PROOF BEFORE DECIDING ON A COURSE OF ACTION.** Gemini should never try a code change
-without first gathering **conclusive evidence** that the bug is fully understood, couldn't possibly
-be caused by something else, and the suggested fix is the best possible way to resolve the issue. This proof must
-be discussed with the user and the fix agreed on before editing code. This is intentionally a very
-high bar before starting coding, but it must avoid "random attempts at fixing bugs" that have been
-a constant issue in the past.
+**GATHER PROOF BEFORE DECIDING ON A COURSE OF ACTION.**
+
+1. Gemini should never try a code change without first gathering **conclusive evidence** that the
+   bug is fully understood, couldn't possibly be caused by something else, and the suggested fix is
+   the best possible way to resolve the issue.
+2. The bug MUST be logged in BUGS.md along with the evidence and best possible proposed resolution.
+3. This course of action (proof + solution) must be discussed with the user and the fix agreed on
+   before editing code. This is intentionally a very high bar before starting coding, but it must
+   avoid "random attempts at fixing bugs" that have been a constant issue in the past.
+4. The user MUST agree to the fix before you edit files.
 
 ## Modern Kotlin Development
 

@@ -61,7 +61,7 @@ class PacketRouter(
             val packet = Cbor.decodeFromByteArray<MeshPacket>(data)
 
             if (hasSeen(packet.id)) {
-                return RouteResult.Drop
+                return RouteResult.Duplicate
             }
             markAsSeen(packet.id)
 
@@ -74,8 +74,7 @@ class PacketRouter(
 
             RouteResult.Delivered(packet, forwardBytes)
         } catch (e: Exception) {
-            Timber.tag(TAG).w(e, "Failed to decode packet")
-            RouteResult.Drop
+            RouteResult.Malformed(e)
         }
     }
 
@@ -89,7 +88,8 @@ class PacketRouter(
 
     sealed interface RouteResult {
         data class Delivered(val packet: MeshPacket, val forwardBytes: ByteArray?) : RouteResult
-        data object Drop : RouteResult
+        data object Duplicate : RouteResult
+        data class Malformed(val error: Throwable) : RouteResult
     }
 
     companion object {

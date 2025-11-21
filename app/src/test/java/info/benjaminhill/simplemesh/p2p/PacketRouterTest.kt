@@ -4,6 +4,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.cbor.Cbor
 import kotlinx.serialization.decodeFromByteArray
 import kotlinx.serialization.encodeToByteArray
@@ -20,6 +21,7 @@ class PacketRouterTest {
 
     private val testScope = TestScope()
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `createBroadcast wraps data and marks as seen`() = testScope.runTest {
         val router = PacketRouter(backgroundScope)
@@ -33,9 +35,10 @@ class PacketRouterTest {
 
         // Should drop if we receive our own packet back
         val result = router.handleIncoming(broadcastBytes)
-        assertTrue(result is PacketRouter.RouteResult.Drop)
+        assertTrue(result is PacketRouter.RouteResult.Duplicate)
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `handleIncoming processes new packet and decrements TTL`() = testScope.runTest {
         val router = PacketRouter(backgroundScope)
@@ -55,6 +58,7 @@ class PacketRouterTest {
         assertEquals(4, forwardedPacket.ttl)
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `handleIncoming drops duplicates`() = testScope.runTest {
         val router = PacketRouter(backgroundScope)
@@ -66,9 +70,10 @@ class PacketRouterTest {
         assertTrue(router.handleIncoming(packetBytes) is PacketRouter.RouteResult.Delivered)
 
         // Second time
-        assertTrue(router.handleIncoming(packetBytes) is PacketRouter.RouteResult.Drop)
+        assertTrue(router.handleIncoming(packetBytes) is PacketRouter.RouteResult.Duplicate)
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `handleIncoming does not forward if TTL is 0`() = testScope.runTest {
         val router = PacketRouter(backgroundScope)
@@ -83,6 +88,7 @@ class PacketRouterTest {
         assertNull(delivered.forwardBytes)
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     @Test
     fun `cleanup removes old entries`() = testScope.runTest {
         // Use a fake time that we can advance manually
@@ -98,7 +104,7 @@ class PacketRouterTest {
         router.handleIncoming(packetBytes)
 
         // Verify it is seen (duplicate drop)
-        assertTrue(router.handleIncoming(packetBytes) is PacketRouter.RouteResult.Drop)
+        assertTrue(router.handleIncoming(packetBytes) is PacketRouter.RouteResult.Duplicate)
 
         // Advance "wall clock" time
         currentTime += 12.minutes.inWholeMilliseconds
